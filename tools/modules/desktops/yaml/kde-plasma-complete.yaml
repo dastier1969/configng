@@ -1,0 +1,310 @@
+name: kde-plasma
+description: "KDE Plasma Complete - Complete feature-rich customizable desktop"
+display_manager: sddm
+status: supported
+
+# KDE Plasma minimal already ships its own konsole, dolphin, ark
+# (archive manager), gwenview (image viewer), okular (PDF viewer).
+# At the mid tier we override common.yaml's GTK choices to use the
+# native KDE applications instead, and at full tier we swap
+# libreoffice-gtk3 for libreoffice-kde so the office suite uses the
+# Plasma integration backend.
+tiers:
+  minimal:
+    packages:
+      - task-kde-desktop
+      - kde-full
+      - aha
+      - amarok
+      - amarok-utils
+      - avahi-discover
+      - bluedevil
+      - bolt
+      - bolt-tests
+      - breeze-gtk-theme
+      - busybox-static
+      - busybox-syslogd
+      - calligra
+      - calligra-data
+      - calligra-libs
+      - calligraplan
+      - calligrasheets
+      - calligrasheets-data
+      - calligrastage
+      - calligrastage-data
+      - calligrawords
+      - calligrawords-data
+      - clinfo
+      - dmidecode
+      - dolphin-plugins
+      - dragonplayer
+      - edid-decode
+      - falkon
+      - fpc
+      - fpc-source
+      - frameworkintegration6
+      - gtk2-engines-pixbuf
+      - gwenview
+      - haruna
+      - isoimagewriter
+      - kaccounts-providers
+      - karbon
+      - kasumi
+      - kate
+      - kate-data
+      - kbackup
+      - kolourpaint
+      - kdeaccessibility
+      - kaddressbook
+      - kaffeine
+      - kasts
+      - kdeconnect
+      - kdegraphics-thumbnailers
+      - kde-config-fcitx
+      - kde-config-flatpak
+      - kde-config-gtk-style
+      - kde-config-gtk-style-preview
+      - kde-config-plymouth
+      - kde-config-screenlocker
+      - kde-config-sddm
+      - kde-config-updates
+      - kde-inotify-survey
+      - kde-spectacle
+      - kde-style-breeze
+      - kde-style-oxygen-qt6
+      - kde-zeroconf
+      - kdebugsettings
+      - kdevelop
+      - kdevelop-python
+      - kdevelop-php
+      - kdenetwork-filesharing
+      - kdepim-themeeditors
+      - kdewebdev
+      - kdesdk
+      - kdetoys
+      - kdiff3
+      - kdiskmark
+      - kdocker
+      - keditbookmarks
+      - kfind
+      - khelpcenter-data
+      - keyutils
+      - kicad
+      - kinfocenter
+      - kinit
+      - kio-admin
+      - kio-extras
+      - kio-fuse
+      - kio-gdrive
+      - kmag
+      - kmenuedit
+      - kmix
+      - kmouth
+      - kmousetool
+      - knews
+      - konq-plugins
+      - konsole
+      - kontrast
+      - kpackagelauncherqml
+      - kpackagetool6
+      - kpartx
+      - kompare
+      - korganizer
+      - kphotoalbum
+      - krb5-locales
+      - krename
+      - krita
+      - kruler
+      - kscreen
+      - kshutdown
+      - ksnip
+      - ksshaskpass
+      - ksystemlog
+      - ksystemstats
+      - ktechlab
+      - ktimetracker
+      - ktorrent
+      - ktouch
+      - kuiviewer
+      - kup-backup
+      - kvirc
+      - kwave
+      - kwayland-integration
+      - kweather
+      - kwin-decoration-oxygen
+      - kwin-addons
+      - kwrite
+      - lazarus
+      - libdisplay-info-bin
+      - libpinyin-utils
+      - libkf6windowsystem-dev
+      - libkwin6
+      - librime-data
+      - librime-data-jyutping
+      - librime-data-stenotype
+      - libu2f-udev
+      - liburi-perl
+      - merkuro
+      - milou
+      - neochat
+      - okular
+      - okular-data
+      - okular-extra-backends
+      - packagekit-tools
+      - partitionmanager
+      - pavucontrol-qt
+      - plasma-browser-integration
+      - plasma-discover-backend-flatpak
+      - plasma-discover-backend-fwupd
+      - plasma-discover-backend-snap
+      - plasma-discover
+      - plasma-disks
+      - plasma-gmailfeed
+      - plasma-firewall
+      - plasma-kdevelop
+      - plasma-nm
+      - plasma-pa
+      - plasma-pass
+      - plasma-runners-addons
+      - plasma-systemmonitor
+      - plasma-thunderbolt
+      - plasma-welcome
+      - plasma-widgets-addons
+      - plasma-vault
+      - polkit-kde-agent-1
+      - powerdevil
+      - power-profiles-daemon
+      - pulseaudio-utils
+      - python3-opencv
+      - qalculate-qt
+      - qt6-gtk-platformtheme
+      - qt6-image-formats-plugins
+      - qt6-qpa-plugins
+      - qt6-speech-speechd-plugin
+      - qt6-style-kvantum
+      - qtcreator
+      - qtcreator-data
+      - qtcreator-doc
+      - qtwayland5
+      - read-edid
+      - sddm
+      - sddm-theme-debian-breeze
+      - skkdic
+      - skkdic-cdb
+      - skkdic-extra
+      - skktools
+      - syncthingtray-kde-plasma
+      - software-properties-gtk
+      - sound-icons
+      - spice-vdagent
+      - sweeper
+      - sysbench
+      - thunderbolt-tools
+      - vkmark
+      - wayland-utils
+      - workrave
+      - xdg-desktop-portal-kde
+
+
+  mid:
+    # Drop the GTK-stack equivalents that KDE already provides via
+    # ark/gwenview/okular at the minimal tier.
+    packages_remove:
+      - gnome-text-editor
+      - file-roller
+      - loupe
+    packages:
+      - kate
+
+  full:
+    # KDE Plasma drops the libreoffice-gtk3 integration package
+    # because we want native KDE file pickers / theming. There used
+    # to be a 'libreoffice-kde' package but it was retired upstream
+    # and no longer exists in any Debian / Ubuntu release we support
+    # (verified against bookworm/trixie/noble/plucky as of 2026).
+    # Plain 'libreoffice' (inherited from common.yaml full) is fine
+    # — modern LibreOffice picks up KDE integration automatically
+    # via libreoffice-style-breeze when it's installed alongside
+    # Plasma.
+    packages_remove:
+      - libreoffice-gtk3
+
+releases:
+  trixie:
+    architectures: [arm64, amd64, armhf, riscv64]
+    packages:
+      - accountsservice
+      - libpipewire-0.3-0t64
+      - libpipewire-0.3-common
+      - libpipewire-0.3-modules
+      - libpipewire-0.3-modules-x11
+      - libu2f-udev
+      - pipewire-alsa
+      - pipewire-audio
+      - pipewire-audio-client-libraries
+      - pipewire-bin
+      - pipewire-pulse
+      - pipewire-v4l2
+      - pipewire-system-services
+      - wireplumber
+      - wireplumber-system-services
+    packages_remove:
+      - lightdm
+      - lightdm-gtk-greeter
+      - pulseaudio
+      - pulseaudio-module-bluetooth
+
+  # ── Debian 14 / Debian Sid ─────────────────────────────────────────
+
+  forky:
+    # Debian 14 — pipewire replaces pulseaudio (same as trixie).
+    architectures: [arm64, amd64, armhf, riscv64]
+    packages:
+      - accountsservice
+      - libpipewire-0.3-0t64
+      - libpipewire-0.3-common
+      - libpipewire-0.3-modules
+      - libpipewire-0.3-modules-x11
+      - libu2f-udev
+      - pipewire-alsa
+      - pipewire-audio
+      - pipewire-audio-client-libraries
+      - pipewire-bin
+      - pipewire-pulse
+      - pipewire-v4l2
+      - pipewire-system-services
+      - wireplumber
+      - wireplumber-system-services
+    packages_remove:
+      - lightdm
+      - lightdm-gtk-greeter
+      - pulseaudio
+      - pulseaudio-module-bluetooth
+
+  sid:
+    # Debian unstable — pipewire replaces pulseaudio (same as trixie/forky).
+    # loong64 is a 64-bit arch capable of running KDE Plasma.
+    architectures: [arm64, amd64, loong64, riscv64]
+    packages:
+      - accountsservice
+      - libpipewire-0.3-0t64
+      - libpipewire-0.3-common
+      - libpipewire-0.3-modules
+      - libpipewire-0.3-modules-x11
+      - libu2f-udev
+      - pipewire-alsa
+      - pipewire-audio
+      - pipewire-audio-client-libraries
+      - pipewire-bin
+      - pipewire-pulse
+      - pipewire-v4l2
+      - pipewire-system-services
+      - wireplumber
+      - wireplumber-system-services
+    packages_remove:
+      - lightdm
+      - lightdm-gtk-greeter
+      - pulseaudio
+      - pulseaudio-module-bluetooth
+
+
