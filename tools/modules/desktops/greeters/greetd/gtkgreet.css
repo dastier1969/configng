@@ -1,0 +1,11 @@
+window {
+	background-image: url("file:///usr/share/wallpapers/armbian/Black-Red--Fractal-Abstract-Armbian-Right_3840x2160.jpg");
+	background-size: cover;
+	background-position: center;
+	}
+
+box#body {
+	background-color: rgba(50, 50, 50, 0.5);
+	border-radius: 10px;
+	padding: 50px;
+	}

@@ -1,0 +1,211 @@
+name: xfce-wayland
+description: "XFCE Wayland - lightweight and fast desktop"
+display_manager: greetd
+status: supported
+
+# Minimal tier: the DE itself + display manager + base utilities.
+# Mid and full tier additions live in common.yaml; xfce inherits them
+# all without override. See common.yaml `tiers.mid` / `tiers.full`.
+tiers:
+  minimal:
+    packages:
+      - task-xfce-desktop
+      - adwaita-icon-theme
+      - adwaita-icon-theme-legacy
+      - blackbird-gtk-theme
+      - bluebird-gtk-theme
+      - breeze
+      - breeze-cursor-theme
+      - breeze-gtk-theme
+      - breeze-icon-theme
+      - breeze-wallpaper
+      - btop
+      - bubblewrap
+      - busybox-static
+      - busybox-syslogd
+      - cage
+      - dmz-cursor-theme
+      - espeak-ng-data
+      - extra-xdg-menus
+      - gir1.2-thunarx-3.0
+      - glmark2-drm
+      - glmark2-es2-drm
+      - gnome-accessibility-themes
+      - gnome-icon-theme
+      - gnome-keyring
+      - gnome-themes-extra
+      - gnome-themes-extra-data
+      - greetd
+      - gstreamer1.0-alsa
+      - gstreamer1.0-gl
+      - gstreamer1.0-gtk3
+      - gstreamer1.0-libav
+      - gstreamer1.0-pipewire
+      - gstreamer1.0-plugins-bad
+      - gstreamer1.0-plugins-base
+      - gstreamer1.0-plugins-good
+      - gstreamer1.0-plugins-ugly
+      - gstreamer1.0-x
+      - gtkgreet
+      - libgtk-layer-shell-dev
+      - greybird-gtk-theme
+      - gsettings-desktop-schemas
+      - hicolor-icon-theme
+      - labwc
+      - libgail-common
+      - libgdk-pixbuf2.0-bin
+      - libgl1-mesa-dri
+      - libglib2.0-bin
+      - libgsettings-qt1
+      - liblcms2-utils
+      - liblouis-bin
+      - libthunarx-3-0
+      - libu2f-udev
+      - liburi-perl
+      - libwmf0.2-7-gtk
+      - libxapp1
+      - libxfce4util-bin
+      - lm-sensors
+      - menu-xdg
+      - mesa-libgallium
+      - mesa-utils
+      - mesa-utils-bin
+      - mesa-va-drivers
+      - mesa-vdpau-drivers
+      - mesa-vulkan-drivers
+      - mousepad
+      - network-manager-gnome
+      - nickle
+      - numix-gtk-theme
+      - numix-icon-theme
+      - numix-icon-theme-circle
+      - nwg-hello
+      - papirus-icon-theme
+      - parole
+      - plymouth-label
+      - quodlibet
+      - swaybg
+      - tango-icon-theme
+      - thunar-archive-plugin
+      - thunar-media-tags-plugin
+      - thunar-volman
+      - tuigreet
+      - va-driver-all
+      - vainfo
+      - vdpau-driver-all
+      - vdpauinfo
+      - vulkan-tools
+      - wayland-utils
+      - workrave-xfce4
+      - xfce4-goodies
+      - xfce4-mount-plugin
+      - xfce4-mpc-plugin
+      - xfce4-notifyd
+      - xfce4-power-manager
+      - xfce4-power-manager-plugins
+      - xfce4-screensaver
+      - xfce4-screenshooter
+      - xfce4-terminal
+      - xfce4-windowck-plugin
+      - viewnior
+      - xdg-dbus-proxy
+      - xdg-desktop-portal
+      - xdg-desktop-portal-gtk
+      - xdg-desktop-portal-wlr
+      - xdg-terminal-exec
+      - xdg-user-dirs
+      - xdg-user-dirs-gtk
+      - xdg-utils
+    packages_uninstall:
+      # IMPORTANT: do NOT list any package here that is a Depends of
+      # xfce4-goodies. apt removal of such a package yanks xfce4-goodies
+      # itself, and on systems with apt's autoremove behavior enabled
+      # the cascade then takes out half the desktop (xserver-xorg,
+      # pulseaudio, cups, evince, mousepad, ...). Keep this list strictly
+      # to packages that are *orthogonal* to the xfce dep tree.
+      # Ubuntu crash reporter — Armbian doesn't consume apport reports.
+      - apport
+      - python3-apport
+      - python3-problem-report
+      - libsnapd-glib-2-1
+
+releases:
+
+  trixie:
+    architectures: [arm64, amd64, armhf, riscv64]
+    packages:
+      - accountsservice
+      - libpipewire-0.3-0t64
+      - libpipewire-0.3-common
+      - libpipewire-0.3-modules
+      - libpipewire-0.3-modules-x11
+      - libu2f-udev
+      - pipewire-alsa
+      - pipewire-audio
+      - pipewire-audio-client-libraries
+      - pipewire-bin
+      - pipewire-pulse
+      - pipewire-v4l2
+      - pipewire-system-services
+      - wireplumber
+      - wireplumber-system-services
+    packages_remove:
+      - lightdm
+      - lightdm-gtk-greeter
+      - pulseaudio
+      - pulseaudio-module-bluetooth
+
+  # ── Debian 14 / Debian Sid ─────────────────────────────────────────
+
+  forky:
+    # Debian 14 — pipewire replaces pulseaudio (same as trixie).
+    architectures: [arm64, amd64, armhf, riscv64]
+    packages:
+      - accountsservice
+      - libpipewire-0.3-0t64
+      - libpipewire-0.3-common
+      - libpipewire-0.3-modules
+      - libpipewire-0.3-modules-x11
+      - libu2f-udev
+      - pipewire-alsa
+      - pipewire-audio
+      - pipewire-audio-client-libraries
+      - pipewire-bin
+      - pipewire-pulse
+      - pipewire-v4l2
+      - pipewire-system-services
+      - wireplumber
+      - wireplumber-system-services
+    packages_remove:
+      - lightdm
+      - lightdm-gtk-greeter
+      - pulseaudio
+      - pulseaudio-module-bluetooth
+
+  sid:
+    # Debian unstable — pipewire replaces pulseaudio (same as trixie/forky).
+    # Includes loong64, which is a sid-only Armbian arch.
+    architectures: [arm64, amd64, armhf, riscv64, loong64]
+    packages:
+      - accountsservice
+      - libpipewire-0.3-0t64
+      - libpipewire-0.3-common
+      - libpipewire-0.3-modules
+      - libpipewire-0.3-modules-x11
+      - libu2f-udev
+      - pipewire-alsa
+      - pipewire-audio
+      - pipewire-audio-client-libraries
+      - pipewire-bin
+      - pipewire-pulse
+      - pipewire-v4l2
+      - pipewire-system-services
+      - wireplumber
+      - wireplumber-system-services
+    packages_remove:
+      - lightdm
+      - lightdm-gtk-greeter
+      - pulseaudio
+      - pulseaudio-module-bluetooth
+
+

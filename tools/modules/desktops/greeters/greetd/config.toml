@@ -1,0 +1,6 @@
+[terminal]
+vt = 7
+
+[default_session]
+command = "cage -s -- /usr/bin/gtkgreet -l -s /etc/greetd/gtkgreet.css"
+user = "_greetd"

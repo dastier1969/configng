@@ -1,0 +1,4 @@
+startxfce4 --wayland
+startxfce4
+bash
+zsh
