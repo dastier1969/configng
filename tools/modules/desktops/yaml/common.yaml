@@ -46,6 +46,10 @@ tiers:
       - vlc                  # media player
       - file-roller          # archive manager
       - transmission-gtk     # torrent client
+      - armbian-imager       # SD-card image flasher (from apt.armbian.com)
+      - cups-pk-helper       # polkit bridge — lets GNOME/KDE printer panels
+                             # unlock cups config without sudo. Other DEs
+                             # get this transitively via system-config-printer.
 
   full:
     packages:
@@ -55,6 +59,7 @@ tiers:
       - inkscape
       - thunderbird
       - audacity
+      - code                  # vscode (from apt.armbian.com)
 
 # Browser substitution table for the literal `browser` token in any
 # tier. The parser replaces `browser` with the right package per
@@ -74,68 +79,53 @@ tiers:
 #   - Debian has 'firefox-esr' but NO 'firefox' package.
 #   - Ubuntu's 'chromium' .deb is a snap-shim wrapper that pulls in
 #     snapd. Armbian doesn't ship snapd, so the shim is broken at
-#     runtime — substitute a real GTK browser instead.
-#     epiphany-browser (GNOME Web) is small, native deb, and
-#     available on every Ubuntu arch.
+#     runtime — apt.armbian.com hosts real .debs (chromium, firefox,
+#     google-chrome-stable) used in this map instead.
+#   - amd64 always gets google-chrome-stable (Google publishes no
+#     arm/riscv builds, so this is amd64-only).
 #   - 'chromium' isn't built for riscv64 in either Debian or Ubuntu.
 #
-# Verified against Debian bookworm/trixie and Ubuntu noble/plucky as
-# of 2026-04. Update this map when new releases ship or when an
-# arch dependency changes.
+# Verified against Debian bookworm/trixie, Ubuntu jammy/noble/resolute,
+# and apt.armbian.com as of 2026-04. Update this map when new releases
+# ship or when an arch dependency changes.
 browser:
   bookworm:
-    amd64:   chromium
+    amd64:   google-chrome-stable
     arm64:   chromium
     armhf:   chromium
     # bookworm has no riscv64 port — no entry needed
   trixie:
-    amd64:   chromium
+    amd64:   google-chrome-stable
     arm64:   chromium
     armhf:   chromium
     riscv64: firefox-esr     # 'firefox' does not exist in Debian
   noble:
-    amd64:   epiphany-browser    # 'chromium' deb is a snap-shim
-    arm64:   epiphany-browser
-    armhf:   epiphany-browser
-    riscv64: epiphany-browser    # 'chromium'/'firefox' both missing
-  plucky:
-    amd64:   epiphany-browser
-    arm64:   epiphany-browser
-    armhf:   epiphany-browser
-    riscv64: epiphany-browser
+    amd64:   google-chrome-stable
+    arm64:   chromium        # apt.armbian.com real .deb (Ubuntu's is snap-shim)
+    armhf:   chromium
+    riscv64: firefox          # apt.armbian.com real .deb
   jammy:
-    # Ubuntu 22.04 LTS — same snap-shim situation as noble; the
-    # 'chromium' deb just invokes snapd which Armbian doesn't ship.
-    # epiphany-browser is a real native deb available on all arches.
-    amd64:   epiphany-browser
-    arm64:   epiphany-browser
-    armhf:   epiphany-browser
-    riscv64: epiphany-browser
-  questing:
-    # Ubuntu 25.10 — same snap-shim situation as noble/plucky.
-    amd64:   epiphany-browser
-    arm64:   epiphany-browser
-    armhf:   epiphany-browser
-    riscv64: epiphany-browser
+    # Ubuntu 22.04 LTS — chromium / firefox apt names on Ubuntu are
+    # snap-shims; apt.armbian.com hosts real .debs of the same name.
+    amd64:   google-chrome-stable
+    arm64:   chromium
+    armhf:   chromium
+    riscv64: firefox
   resolute:
-    # Ubuntu 26.04 LTS — same snap-shim situation as noble/plucky.
-    amd64:   epiphany-browser
-    arm64:   epiphany-browser
-    armhf:   epiphany-browser
-    riscv64: epiphany-browser
+    # Ubuntu 26.04 LTS
+    amd64:   google-chrome-stable
+    arm64:   chromium
+    armhf:   chromium
+    riscv64: firefox
   forky:
-    # Debian 14 — same rules as trixie: 'firefox' is not a Debian
-    # package, only 'firefox-esr' exists; chromium is available for
-    # the three tier-1 arches.
-    amd64:   chromium
+    # Debian 14 — same rules as trixie.
+    amd64:   google-chrome-stable
     arm64:   chromium
     armhf:   chromium
     riscv64: firefox-esr     # 'firefox' does not exist in Debian
   sid:
     # Debian unstable — same rules as trixie/forky.
-    # loong64 gets firefox-esr because chromium is not yet built for
-    # this architecture in the Debian archive.
-    amd64:   chromium
+    amd64:   google-chrome-stable
     arm64:   chromium
     armhf:   chromium
     riscv64: firefox-esr     # 'firefox' does not exist in Debian
@@ -201,11 +191,6 @@ tier_overrides:
           amd64:  { packages_remove: [loupe] }
           arm64:  { packages_remove: [loupe] }
           armhf:  { packages_remove: [loupe] }
-      plucky:
-        # loupe in plucky was dropped on armhf (GNOME 48 didn't ship
-        # an armhf build for it). Other arches still have it.
-        architectures:
-          armhf:  { packages_remove: [loupe] }
       jammy:
         # loupe was introduced with GNOME 44/45; Ubuntu 22.04 (jammy)
         # shipped GNOME 42 and has no loupe package on any arch.
@@ -214,16 +199,16 @@ tier_overrides:
           arm64:    { packages_remove: [loupe] }
           armhf:    { packages_remove: [loupe] }
           riscv64:  { packages_remove: [loupe] }
-      questing:
-        # loupe on armhf continues to be absent in questing — no GNOME
-        # armhf build for loupe, same gap as plucky.
-        architectures:
-          armhf:  { packages_remove: [loupe] }
       resolute:
-        # Same loupe/armhf gap as questing.
+        # loupe/armhf still missing — no GNOME armhf build.
         architectures:
           armhf:  { packages_remove: [loupe] }
   full:
+    # `code` (Microsoft VSCode) is published for amd64/arm64/armhf only —
+    # no riscv64 build exists upstream. Strip arch-wide.
+    architectures:
+      riscv64:
+        packages_remove: [code]
     releases:
       bookworm:
         # thunderbird is missing on bookworm/armhf.
@@ -234,42 +219,20 @@ tier_overrides:
         architectures:
           armhf:  { packages_remove: [thunderbird] }
       noble:
-        # thunderbird on Ubuntu is a snap-shim that only exists on
-        # amd64/arm64; the deb is missing on armhf and riscv64.
-        # We strip it on EVERY arch on Ubuntu because the shim
-        # requires snapd which Armbian doesn't ship.
+        # Ubuntu's thunderbird .deb on amd64/arm64 is a snap-shim
+        # wrapper, but apt.armbian.com hosts a real thunderbird .deb
+        # for those arches that wins by version. armhf and riscv64
+        # have no upstream Ubuntu deb at all and we don't (yet) ship
+        # them via apt.armbian.com — strip on those arches only.
         architectures:
-          amd64:    { packages_remove: [thunderbird] }
-          arm64:    { packages_remove: [thunderbird] }
-          armhf:    { packages_remove: [thunderbird] }
-          riscv64:  { packages_remove: [thunderbird] }
-      plucky:
-        architectures:
-          amd64:    { packages_remove: [thunderbird] }
-          arm64:    { packages_remove: [thunderbird] }
           armhf:    { packages_remove: [thunderbird] }
           riscv64:  { packages_remove: [thunderbird] }
       jammy:
-        # thunderbird on Ubuntu 22.04 (jammy) was migrated to a
-        # snap-shim deb; Armbian doesn't ship snapd so the shim is
-        # broken at runtime. Strip it on all arches, same as noble/plucky.
         architectures:
-          amd64:    { packages_remove: [thunderbird] }
-          arm64:    { packages_remove: [thunderbird] }
-          armhf:    { packages_remove: [thunderbird] }
-          riscv64:  { packages_remove: [thunderbird] }
-      questing:
-        # Same snap-shim situation as noble/plucky.
-        architectures:
-          amd64:    { packages_remove: [thunderbird] }
-          arm64:    { packages_remove: [thunderbird] }
           armhf:    { packages_remove: [thunderbird] }
           riscv64:  { packages_remove: [thunderbird] }
       resolute:
-        # Same snap-shim situation as noble/plucky.
         architectures:
-          amd64:    { packages_remove: [thunderbird] }
-          arm64:    { packages_remove: [thunderbird] }
           armhf:    { packages_remove: [thunderbird] }
           riscv64:  { packages_remove: [thunderbird] }
       forky:
@@ -279,5 +242,10 @@ tier_overrides:
           armhf:    { packages_remove: [thunderbird] }
       sid:
         # thunderbird is missing on sid/armhf — same gap as trixie/forky.
+        # `code` is not tracked for sid in apt.armbian.com (Debian unstable;
+        # vendor debs may break) — strip on every sid arch.
         architectures:
-          armhf:    { packages_remove: [thunderbird] }
+          amd64:    { packages_remove: [code] }
+          arm64:    { packages_remove: [code] }
+          armhf:    { packages_remove: [code, thunderbird] }
+          riscv64:  { packages_remove: [code] }
