@@ -1,4 +1,4 @@
-name: xfce-wayland
+ name: xfce-wayland
 description: "XFCE Wayland - lightweight and fast desktop"
 display_manager: greetd
 status: supported
@@ -147,6 +147,7 @@ releases:
       - pipewire-pulse
       - pipewire-v4l2
       - pipewire-system-services
+      - pipewire-module-xrdp
       - wireplumber
       - wireplumber-system-services
     packages_remove:
@@ -207,5 +208,3 @@ releases:
       - lightdm-gtk-greeter
       - pulseaudio
       - pulseaudio-module-bluetooth
-
-
