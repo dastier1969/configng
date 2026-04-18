@@ -103,6 +103,7 @@ releases:
       - libpipewire-0.3-common
       - libpipewire-0.3-modules
       - libpipewire-0.3-modules-x11
+      - libpipewire-0.3-modules-xrdp
       - libu2f-udev
       - pipewire-alsa
       - pipewire-audio
@@ -114,8 +115,6 @@ releases:
       - wireplumber
       - wireplumber-system-services
     packages_remove:
-      - lightdm
-      - lightdm-gtk-greeter
       - pulseaudio
       - pulseaudio-module-bluetooth
 
@@ -152,8 +151,6 @@ releases:
       - wireplumber
       - wireplumber-system-services
     packages_remove:
-      - lightdm
-      - lightdm-gtk-greeter
       - pulseaudio
       - pulseaudio-module-bluetooth
 
