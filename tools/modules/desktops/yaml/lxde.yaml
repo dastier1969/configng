@@ -1,0 +1,174 @@
+name: xfce
+description: "LXDE - Ultra lightweight and fast desktop"
+display_manager: lightdm
+status: supported
+
+# Minimal tier: the DE itself + display manager + base utilities.
+# Mid and full tier additions live in common.yaml; xfce inherits them
+# all without override. See common.yaml `tiers.mid` / `tiers.full`.
+tiers:
+  minimal:
+    packages:
+      - task-lxde-desktop
+      - adwaita-icon-theme
+      - adwaita-icon-theme-legacy
+      - blackbird-gtk-theme
+      - bluebird-gtk-theme
+      - bubblewrap
+      - busybox-static
+      - busybox-syslogd
+      - copyq
+      - deluge
+      - diodon
+      - dmidecode
+      - dmz-cursor-theme
+      - enchant-2
+      - espeak-ng-data
+      - gir1.2-thunarx-3.0
+      - gnome-accessibility-themes
+      - gnome-colors
+      - gnome-disk-utility
+      - gnome-icon-theme
+      - gnome-keyring
+      - gnome-screenshot
+      - gnome-system-tools
+      - gnome-themes-extra
+      - gnome-themes-extra-data
+      - greybird-gtk-theme
+      - gsettings-desktop-schemas
+      - gucharmap
+      - hardinfo2
+      - hicolor-icon-theme
+      - libenchant-2-voikko
+      - libfm-tools
+      - libgail-common
+      - libgdk-pixbuf2.0-bin
+      - libgl1-mesa-dri
+      - libglib2.0-bin
+      - libgsettings-qt1
+      - liblcms2-utils
+      - liblouis-bin
+      - libpaper-utils
+      - libu2f-udev
+      - liburi-perl
+      - libwmf0.2-7-gtk
+      - libxapp1
+      - lightdm
+      - light-locker
+      - lightdm-settings
+      - lxde-settings-daemon
+      - lxhotkey-plugin-openbox
+      - lxhotkey-data
+      - lxinput
+      - lxlauncher
+      - lxmusic
+      - lxtask
+      - mousepad
+      - nautilus
+      - nautilus-admin
+      - nautilus-font-manager
+      - nautilus-hide
+      - nautilus-sendto
+      - nautilus-share
+      - nautilus-wipe
+      - nautilus-nextcloud
+      - nautilus-owncloud
+      - nickle
+      - numix-gtk-theme
+      - numix-icon-theme
+      - numix-icon-theme-circle
+      - numlockx
+      - package-update-indicator
+      - papirus-icon-theme
+      - plymouth-label
+      - poppler-utils
+      - quodlibet
+      - slick-greeter
+      - tango-icon-theme
+      - tint2
+      - workrave
+
+releases:
+  bookworm:
+    architectures: [arm64, amd64, armhf]
+    packages:
+      - accountsservice
+      - libu2f-udev
+
+  trixie:
+    architectures: [arm64, amd64, armhf, riscv64]
+    packages:
+      - accountsservice
+      - libu2f-udev
+      - pipewire-audio
+      - pipewire-pulse
+      - wireplumber
+    packages_remove:
+      - pulseaudio
+      - pulseaudio-module-bluetooth
+
+  noble:
+    architectures: [arm64, amd64, armhf, riscv64]
+    packages:
+      - polkitd
+      - pkexec
+      - libu2f-udev
+    packages_uninstall:
+      # Removing ubuntu-session strips the Ubuntu desktop branding
+      # session from gdm. Do NOT add language-selector-gnome here:
+      # gnome-control-center has a hard dependency on it, so apt
+      # would yank gnome-control-center along with it.
+      - ubuntu-session
+
+  forky:
+    # Debian 14 — pipewire replaces pulseaudio (same as trixie).
+    architectures: [arm64, amd64, armhf, riscv64]
+    packages:
+      - accountsservice
+      - libu2f-udev
+      - pipewire-audio
+      - pipewire-pulse
+      - wireplumber
+    packages_remove:
+      - pulseaudio
+      - pulseaudio-module-bluetooth
+
+  sid:
+    # Debian unstable — pipewire replaces pulseaudio (same as trixie/forky).
+    # Includes loong64, which is a sid-only Armbian arch.
+    architectures: [arm64, amd64, armhf, riscv64, loong64]
+    packages:
+      - accountsservice
+      - libu2f-udev
+      - pipewire-audio
+      - pipewire-pulse
+      - wireplumber
+    packages_remove:
+      - pulseaudio
+      - pulseaudio-module-bluetooth
+
+  # ── Ubuntu 22.04 LTS / 25.10 / 26.04 ──────────────────────────────
+
+  jammy:
+    # Ubuntu 22.04 LTS — polkit split is available via SRU;
+    # pulseaudio remains the default audio stack on jammy.
+    architectures: [arm64, amd64, armhf, riscv64]
+    packages:
+      - polkitd
+      - pkexec
+      - libu2f-udev
+    packages_uninstall:
+      - ubuntu-session
+
+  resolute:
+    # Ubuntu 26.04 LTS — same as questing; pavumeter still absent.
+    architectures: [arm64, amd64, armhf, riscv64]
+    packages:
+      - polkitd
+      - pkexec
+      - libfido2-1
+    packages_remove:
+      # pavumeter remains absent from the Ubuntu archive (dropped in plucky).
+      - pavumeter
+    packages_uninstall:
+      - ubuntu-session
