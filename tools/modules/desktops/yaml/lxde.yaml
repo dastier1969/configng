@@ -99,11 +99,23 @@ releases:
     architectures: [arm64, amd64, armhf, riscv64]
     packages:
       - accountsservice
+      - libpipewire-0.3-0t64
+      - libpipewire-0.3-common
+      - libpipewire-0.3-modules
+      - libpipewire-0.3-modules-x11
       - libu2f-udev
+      - pipewire-alsa
       - pipewire-audio
+      - pipewire-audio-client-libraries
+      - pipewire-bin
       - pipewire-pulse
+      - pipewire-v4l2
+      - pipewire-system-services
       - wireplumber
+      - wireplumber-system-services
     packages_remove:
+      - lightdm
+      - lightdm-gtk-greeter
       - pulseaudio
       - pulseaudio-module-bluetooth
 
@@ -125,11 +137,23 @@ releases:
     architectures: [arm64, amd64, armhf, riscv64]
     packages:
       - accountsservice
+      - libpipewire-0.3-0t64
+      - libpipewire-0.3-common
+      - libpipewire-0.3-modules
+      - libpipewire-0.3-modules-x11
       - libu2f-udev
+      - pipewire-alsa
       - pipewire-audio
+      - pipewire-audio-client-libraries
+      - pipewire-bin
       - pipewire-pulse
+      - pipewire-v4l2
+      - pipewire-system-services
       - wireplumber
+      - wireplumber-system-services
     packages_remove:
+      - lightdm
+      - lightdm-gtk-greeter
       - pulseaudio
       - pulseaudio-module-bluetooth
 
@@ -139,11 +163,23 @@ releases:
     architectures: [arm64, amd64, armhf, riscv64, loong64]
     packages:
       - accountsservice
+      - libpipewire-0.3-0t64
+      - libpipewire-0.3-common
+      - libpipewire-0.3-modules
+      - libpipewire-0.3-modules-x11
       - libu2f-udev
+      - pipewire-alsa
       - pipewire-audio
+      - pipewire-audio-client-libraries
+      - pipewire-bin
       - pipewire-pulse
+      - pipewire-v4l2
+      - pipewire-system-services
       - wireplumber
+      - wireplumber-system-services
     packages_remove:
+      - lightdm
+      - lightdm-gtk-greeter
       - pulseaudio
       - pulseaudio-module-bluetooth
 
