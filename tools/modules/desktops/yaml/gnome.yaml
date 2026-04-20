@@ -100,8 +100,13 @@ releases:
 
   sid:
     # Debian unstable — pipewire replaces pulseaudio (same as trixie/forky).
-    # loong64 is included: it is a 64-bit arch capable of running GNOME.
-    architectures: [arm64, amd64, loong64]
+    # loong64 is intentionally dropped: GNOME on loong64 isn't viable
+    # for Armbian right now. The sid/loong64 port frequently skews
+    # behind the main sid archive (e.g. gnupg2 gets bumped before
+    # dirmngr is rebuilt for loong64), which breaks rootfs bootstrap
+    # before module_desktops even runs. Keeping a lean CLI-only
+    # loong64 story until the port stabilises.
+    architectures: [arm64, amd64]
     packages:
       - accountsservice
       - libu2f-udev
@@ -117,11 +122,24 @@ releases:
   jammy:
     # Ubuntu 22.04 LTS — polkit split available via SRU;
     # pulseaudio remains default on jammy.
+    #
+    # gnome-bluetooth-sendto doesn't exist on jammy: GNOME 42 still
+    # shipped gnome-bluetooth as a single package containing the
+    # libgnome-bluetooth-3.0 library, the control-center Bluetooth
+    # panel, AND the sendto helper. The split into
+    # gnome-bluetooth + gnome-bluetooth-sendto +
+    # libgnome-bluetooth-3.0 landed with GNOME 43 (bookworm /
+    # noble+). Strip the split-out name here and pull in the
+    # monolithic package instead so the Quick Settings Bluetooth
+    # tile still has libgnome-bluetooth-3.0 to dlopen.
     architectures: [arm64, amd64]
     packages:
       - polkitd
       - pkexec
       - libu2f-udev
+      - gnome-bluetooth
+    packages_remove:
+      - gnome-bluetooth-sendto
     packages_uninstall:
       - ubuntu-session
 
