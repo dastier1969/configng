@@ -5,7 +5,7 @@ module_options+=(
 	["module_desktops,example"]="install remove disable enable status auto manual login supported installed help upgrade downgrade tier at-tier set-tier"
 	["module_desktops,status"]="Active"
 	["module_desktops,arch"]=""
-	["module_desktops,help_install"]="Install desktop (de=name tier=minimal|mid|full)"
+	["module_desktops,help_install"]="Install desktop (de=name tier=minimal|mid|full [mode=build])"
 	["module_desktops,help_remove"]="Remove desktop (de=name)"
 	["module_desktops,help_disable"]="Disable display manager"
 	["module_desktops,help_enable"]="Enable display manager"
@@ -13,7 +13,7 @@ module_options+=(
 	["module_desktops,help_auto"]="Enable auto-login (de=name)"
 	["module_desktops,help_manual"]="Disable auto-login (de=name)"
 	["module_desktops,help_login"]="Check auto-login status (de=name)"
-	["module_desktops,help_supported"]="JSON list or check one (de=name arch=X release=Y)"
+	["module_desktops,help_supported"]="JSON list or check one (de=name arch=X release=Y filter=available|unavailable|all status=csv-of-supported,community,unsupported)"
 	["module_desktops,help_installed"]="Returns 0 if any desktop is installed (no de=)"
 	["module_desktops,help_upgrade"]="Upgrade installed desktop to a higher tier (de=name tier=mid|full)"
 	["module_desktops,help_downgrade"]="Downgrade installed desktop to a lower tier (de=name tier=minimal|mid)"
@@ -102,6 +102,111 @@ function _module_desktops_write_apt_pin() {
 }
 
 #
+# Switch the host from systemd-networkd (the Armbian minimal image
+# baseline) to NetworkManager so the freshly-installed desktop's
+# NM-applet / Quick Settings tile actually control the network link.
+#
+# Armbian's build-time desktop images use armbian/build's
+# extensions/network/net-network-manager.sh to do this at image
+# assembly; a desktop installed after the fact on top of a minimal
+# image needs the same transition, but at runtime. This mirrors
+# those files exactly — same netplan renderer flip, same
+# NetworkManager conf.d drop-ins, same NetworkManager-wait-online
+# disable — so the two paths converge on the same end state.
+#
+# Idempotent. Safe to run on a system that is already on
+# NetworkManager (files overwrite to identical content, netplan
+# generate is a no-op). Safe to run in mode=build (skips the
+# netplan apply; the image's first boot will drive it).
+# Safe inside a container (skips apply + service start).
+#
+# Arguments: none. Uses SRC path via $desktops_dir for asset
+# resolution, same as module_desktop_branding.
+#
+function _module_desktops_configure_networking() {
+	local src_dir="${desktops_dir}/networking"
+	if [[ ! -d "$src_dir" ]]; then
+		debug_log "_module_desktops_configure_networking: no ${src_dir}, skipping"
+		return 0
+	fi
+
+	# NetworkManager binary must exist, otherwise the renderer flip
+	# would orphan the network. The minimal tier now declares
+	# network-manager in common.yaml so the pkg_install step already
+	# brought it in; this is a belt-and-suspenders check in case a
+	# YAML override ever drops it.
+	if ! command -v NetworkManager > /dev/null 2>&1; then
+		echo "Warning: NetworkManager binary not found; skipping netplan renderer flip" >&2
+		return 0
+	fi
+
+	# Drop the networkd-renderer netplan file shipped by minimal
+	# images. Leaving it in place next to our NetworkManager-renderer
+	# one makes `netplan generate` emit for both backends and the two
+	# race to claim each interface at boot.
+	if [[ -f /etc/netplan/10-dhcp-all-interfaces.yaml ]]; then
+		debug_log "_module_desktops_configure_networking: removing /etc/netplan/10-dhcp-all-interfaces.yaml (was networkd renderer)"
+		rm -f /etc/netplan/10-dhcp-all-interfaces.yaml
+	fi
+
+	# Install the NetworkManager-renderer netplan + NM conf.d drop-ins.
+	mkdir -p /etc/netplan /etc/NetworkManager/conf.d
+	cp "${src_dir}/netplan/00-default-use-network-manager.yaml" \
+		/etc/netplan/00-default-use-network-manager.yaml
+	chmod 600 /etc/netplan/00-default-use-network-manager.yaml
+
+	for conf in "${src_dir}"/NetworkManager/*.conf; do
+		[[ -f "$conf" ]] || continue
+		cp "$conf" "/etc/NetworkManager/conf.d/$(basename "$conf")"
+	done
+
+	# NetworkManager-wait-online holds boot for up to 90s waiting
+	# for carrier on every managed device — on a desktop with an
+	# unplugged Ethernet port that's 90s of visible "why is this so
+	# slow" at every boot. The NM tile in the DE catches up within
+	# seconds of login anyway.
+	srv_disable NetworkManager-wait-online.service 2>/dev/null || true
+
+	# systemd-resolved is typically already enabled on minimal images;
+	# ensure it stays that way. NetworkManager uses it as the DNS
+	# resolver/cache when /etc/resolv.conf points at the stub.
+	srv_enable systemd-resolved.service 2>/dev/null || true
+
+	# Build mode: don't apply. The image is offline; netplan will
+	# generate + apply on first boot via armbian-firstrun. We only
+	# laid the config files.
+	if [[ "$mode" == "build" ]]; then
+		debug_log "_module_desktops_configure_networking: mode=build, skipping netplan apply"
+		return 0
+	fi
+
+	# Container mode: no real network to flip, no systemd to drive
+	# NM. Just lay the files (done above) and exit.
+	if _desktop_in_container; then
+		debug_log "_module_desktops_configure_networking: in container, skipping netplan apply + NM start"
+		return 0
+	fi
+
+	# Live install. Regenerate netplan output and apply it. netplan
+	# apply stops systemd-networkd.service on interfaces it hands
+	# over to NetworkManager, so the user's current SSH session over
+	# those interfaces can stall briefly — that's expected.
+	if command -v netplan > /dev/null 2>&1; then
+		netplan generate 2>&1 || echo "Warning: netplan generate failed" >&2
+		netplan apply    2>&1 || echo "Warning: netplan apply failed" >&2
+	fi
+
+	# Make sure NM is enabled + started. On a minimal image the
+	# service was installed a moment ago and masked/not enabled by
+	# default on some distros; enabling + starting here is
+	# idempotent.
+	srv_enable NetworkManager.service 2>/dev/null || true
+	srv_start  NetworkManager.service 2>/dev/null || true
+
+	return 0
+}
+
+#
 # Module to install and manage desktop environments (YAML-driven)
 #
 function module_desktops() {
@@ -110,6 +215,9 @@ function module_desktops() {
 	local query_arch=""
 	local query_release=""
 	local tier=""
+	local mode=""
+	local filter=""
+	local status=""
 	local selected
 	for selected in "${@:2}"; do
 		IFS='=' read -r -a split <<< "${selected}"
@@ -117,6 +225,9 @@ function module_desktops() {
 		[[ "${split[0]}" == "arch" ]] && query_arch="${split[1]}"
 		[[ "${split[0]}" == "release" ]] && query_release="${split[1]}"
 		[[ "${split[0]}" == "tier" ]] && tier="${split[1]}"
+		[[ "${split[0]}" == "mode" ]] && mode="${split[1]}"
+		[[ "${split[0]}" == "filter" ]] && filter="${split[1]}"
+		[[ "${split[0]}" == "status" ]] && status="${split[1]}"
 	done
 
 	local commands
@@ -148,8 +259,15 @@ function module_desktops() {
 				;;
 			esac
 
-			local user
-			user=$(module_desktop_getuser) || return 1
+			# mode=build: image-build time — no real user exists yet
+			# (armbian-firstrun creates the first user on first boot).
+			# Skip user detection, group membership, skel propagation,
+			# and DM start/autologin. Package install, branding, repos,
+			# apt pin, and manifest recording run in both modes.
+			local user=""
+			if [[ "$mode" != "build" ]]; then
+				user=$(module_desktop_getuser) || return 1
+			fi
 
 			module_desktop_yamlparse "$de" "$(dpkg --print-architecture)" "$DISTROID" "$tier" || return 1
 
@@ -158,7 +276,7 @@ function module_desktops() {
 				return 1
 			fi
 
-			if [[ "$DESKTOP_SUPPORTED" != "yes" ]]; then
+			if [[ "$DESKTOP_AVAILABLE" != "yes" ]]; then
 				echo "Warning: '${de}' is not supported on ${DISTROID}/$(dpkg --print-architecture)" >&2
 			fi
 
@@ -223,18 +341,31 @@ function module_desktops() {
 					return 1
 				fi
 				command -v "$DESKTOP_DM" > /etc/X11/default-display-manager 2>/dev/null || true
+
+				# In build mode, disable services that package postinst
+				# auto-enabled. The firstrun script re-enables the DM
+				# after initial user setup completes; psd is activated
+				# per-user via ~/.activate_psd at runtime.
+				if [[ "$mode" == "build" ]]; then
+					srv_disable "$DESKTOP_DM" 2>/dev/null || true
+					srv_disable display-manager 2>/dev/null || true
+					srv_disable psd.service 2>/dev/null || true
+				fi
 			fi
 
 			# Armbian-only branding extras: install only when the Armbian
-			# apt source is configured. armbian-plymouth-theme lives in
-			# Armbian's own repo; on a non-Armbian system the apt install
-			# would hard-fail with "Unable to locate package" and abort
-			# the entire desktop install. Keep this gated and additive so
-			# the rest of the desktop install path stays distro-agnostic.
+			# apt source is configured AND we're running on a live system
+			# (mode != build). armbian-plymouth-theme lives in Armbian's
+			# own repo; on a non-Armbian system the apt install would
+			# hard-fail with "Unable to locate package" and abort the
+			# entire desktop install. At image-build time (mode=build)
+			# the armbian/build framework installs this package directly
+			# from the locally-built .deb artifact — no apt fetch needed
+			# — so skip it here to avoid racing the build framework.
 			# Match either the legacy single-line .list file or the modern
 			# deb822 .sources file.
-			if [[ -f /etc/apt/sources.list.d/armbian.list \
-				|| -f /etc/apt/sources.list.d/armbian.sources ]]; then
+			if [[ "$mode" != "build" ]] && { [[ -f /etc/apt/sources.list.d/armbian.list ]] \
+				|| [[ -f /etc/apt/sources.list.d/armbian.sources ]]; }; then
 				pkg_install -o Dpkg::Options::="--force-confdef" -o Dpkg::Options::="--force-confold" armbian-plymouth-theme || \
 					echo "Warning: armbian-plymouth-theme not installed (package not found in armbian repo)" >&2
 			fi
@@ -260,44 +391,59 @@ function module_desktops() {
 
 			# remove unwanted packages
 			if [[ -n "$DESKTOP_PACKAGES_UNINSTALL" ]]; then
-				apt-get remove -y --purge ${DESKTOP_PACKAGES_UNINSTALL} 2>/dev/null || true
+				pkg_remove ${DESKTOP_PACKAGES_UNINSTALL} 2>/dev/null || true
 			fi
 
 			# install branding
 			module_desktop_branding "$de"
 
+			# Flip netplan renderer from systemd-networkd to
+			# NetworkManager. On a minimal-image base the baseline
+			# is systemd-networkd; the desktop's NM-applet / Quick
+			# Settings tile needs NM to be driving the link,
+			# otherwise the UI shows an always-disconnected state
+			# even though the machine is online.
+			_module_desktops_configure_networking
+
 			# add user to desktop groups
-			for group in sudo netdev audio video dialout plugdev input bluetooth systemd-journal ssh; do
-				usermod -aG "$group" "$user" 2>/dev/null || true
-			done
-
-			# set up profile sync daemon
-			local user_home
-			user_home=$(getent passwd "$user" | cut -d: -f6)
-			if command -v psd > /dev/null 2>&1; then
-				grep -q overlay-helper /etc/sudoers 2>/dev/null || \
-					echo "${user} ALL=(ALL) NOPASSWD: /usr/bin/psd-overlay-helper" >> /etc/sudoers
-				touch "${user_home}/.activate_psd"
-			fi
-
-			# update skel to existing users
-			module_update_skel install
-
-			# display manager and auto-login (skip in containers).
-			# Only flip default.target to graphical AFTER the DM has
-			# actually started — if the start fails, the next boot
-			# would otherwise pin to graphical.target with a broken
-			# DM and the user gets a black screen.
-			if ! _desktop_in_container; then
-				for dm in gdm3 lightdm sddm; do
-					systemctl is-active --quiet "$dm" 2>/dev/null && systemctl stop "$dm" 2>/dev/null
+			# User-specific setup: group membership, skel propagation,
+			# display manager start + autologin. Skipped in build mode
+			# because no real user exists at image-build time — the
+			# first user inherits /etc/skel at creation via useradd,
+			# and the build framework manages DM state separately.
+			if [[ "$mode" != "build" ]]; then
+				for group in sudo netdev audio video dialout plugdev input bluetooth systemd-journal ssh; do
+					usermod -aG "$group" "$user" 2>/dev/null || true
 				done
-				if systemctl start display-manager 2>/dev/null \
-					|| systemctl start "$DESKTOP_DM" 2>/dev/null; then
-					systemctl set-default graphical.target 2>/dev/null || true
-					module_desktops auto de="$de"
-				else
-					echo "Warning: ${DESKTOP_DM} did not start; leaving default.target unchanged" >&2
+
+				# set up profile sync daemon
+				local user_home
+				user_home=$(getent passwd "$user" | cut -d: -f6)
+				if command -v psd > /dev/null 2>&1; then
+					grep -q overlay-helper /etc/sudoers 2>/dev/null || \
+						echo "${user} ALL=(ALL) NOPASSWD: /usr/bin/psd-overlay-helper" >> /etc/sudoers
+					touch "${user_home}/.activate_psd"
+				fi
+
+				# update skel to existing users
+				module_update_skel install
+
+				# display manager and auto-login (skip in containers).
+				# Only flip default.target to graphical AFTER the DM has
+				# actually started — if the start fails, the next boot
+				# would otherwise pin to graphical.target with a broken
+				# DM and the user gets a black screen.
+				if ! _desktop_in_container; then
+					for dm in gdm3 lightdm sddm; do
+						systemctl is-active --quiet "$dm" 2>/dev/null && systemctl stop "$dm" 2>/dev/null
+					done
+					if systemctl start display-manager 2>/dev/null \
+						|| systemctl start "$DESKTOP_DM" 2>/dev/null; then
+						systemctl set-default graphical.target 2>/dev/null || true
+						module_desktops auto de="$de"
+					else
+						echo "Warning: ${DESKTOP_DM} did not start; leaving default.target unchanged" >&2
+					fi
 				fi
 			fi
 
@@ -378,7 +524,70 @@ function module_desktops() {
 			fi
 
 			if [[ ${#to_remove[@]} -gt 0 ]]; then
-				pkg_remove "${to_remove[@]}"
+				# Straight purge — do NOT use pkg_remove (which does
+				# `apt-get autopurge`). autopurge adds an orphan-cleanup
+				# cascade on top of the removal: on fresh noble/trixie
+				# images several t64-renamed libs (libext2fs2t64, libss2,
+				# logsave) are marked auto-installed, and once the DE is
+				# gone nothing manual depends on them — so apt proposes
+				# to orphan-remove the whole chain, which transitively
+				# reaches e2fsprogs (Essential). apt 2.9+/solver 3.0
+				# vetoes the transaction:
+				#   E: Essential packages were removed and -y was used
+				#      without --allow-remove-essential.
+				# Nothing actually gets removed and the DE is left fully
+				# installed. The manifest already lists every package
+				# the matching install added, so a plain purge (no
+				# cascade) is both sufficient and safe.
+				#
+				# Essential filter: some base images (notably
+				# armbian/repository-update:*-armhf/*-arm64 built from
+				# debian-slim) ship *without* e2fsprogs pre-installed.
+				# A desktop that pulls in dracut-install or
+				# gnome-disk-utility transitively installs e2fsprogs
+				# during `install`, which then lands in the manifest.
+				# Purging it is what triggers the 'Essential packages
+				# will be removed' refusal. Simulate the purge, pull
+				# any packages apt flags as essential-breaking out of
+				# the list, and run the real purge without them. These
+				# packages weren't added by the user's choice of DE —
+				# they were holes in the base image — so leaving them
+				# in place is the correct outcome.
+				local essentials=()
+				mapfile -t essentials < <(
+					DEBIAN_FRONTEND=noninteractive apt-get -s -y purge "${to_remove[@]}" 2>&1 | \
+					awk '
+						/^WARNING: The following essential packages/ { capture=1; next }
+						/^This should NOT be done/ { next }
+						capture && /^[^[:space:]]/ { capture=0 }
+						capture {
+							gsub(/\(due to [^)]*\)/, "")
+							for (i=1;i<=NF;i++) print $i
+						}
+					'
+				)
+				if [[ ${#essentials[@]} -gt 0 ]]; then
+					echo "Warning: skipping packages apt flagged as essential-breaking: ${essentials[*]}" >&2
+					local filtered=() essential
+					for pkg in "${to_remove[@]}"; do
+						local skip=0
+						for essential in "${essentials[@]}"; do
+							if [[ "$pkg" == "$essential" ]]; then skip=1; break; fi
+						done
+						(( skip == 0 )) && filtered+=("$pkg")
+					done
+					to_remove=("${filtered[@]}")
+				fi
+
+				# On failure, keep the manifest so the next `remove`
+				# call retries against the same list instead of falling
+				# into the less-precise YAML-walk path.
+				if [[ ${#to_remove[@]} -gt 0 ]]; then
+					if ! DEBIAN_FRONTEND=noninteractive apt-get -y purge "${to_remove[@]}"; then
+						echo "Error: package purge failed for ${de}; manifest preserved at ${desktop_pkg_file} for retry" >&2
+						return 1
+					fi
+				fi
 			fi
 			rm -f "$desktop_pkg_file" "/etc/armbian/desktop/${de}.tier"
 
@@ -553,8 +762,35 @@ function module_desktops() {
 			if [[ -z "$de" ]]; then
 				local yaml_dir="${desktops_dir}/yaml"
 				local parser="${desktops_dir}/scripts/parse_desktop_yaml.py"
+				local -a parser_args=("$yaml_dir" "--list-json" "$use_release" "$use_arch")
+				if [[ -n "$filter" ]]; then
+					case "$filter" in
+						available|unavailable|all) parser_args+=(--filter "$filter") ;;
+						*)
+							echo "Error: invalid filter '${filter}', must be available|unavailable|all" >&2
+							return 1
+						;;
+					esac
+				fi
+				if [[ -n "$status" ]]; then
+					# comma-separated keep-list of status values
+					# (supported, community, unsupported).
+					local _s _bad=0
+					IFS=',' read -r -a _s <<< "$status"
+					for _v in "${_s[@]}"; do
+						case "$_v" in
+							supported|community|unsupported) ;;
+							*) _bad=1; break ;;
+						esac
+					done
+					if (( _bad )); then
+						echo "Error: invalid status '${status}', must be CSV of supported|community|unsupported" >&2
+						return 1
+					fi
+					parser_args+=(--status "$status")
+				fi
 				local result
-				result=$(python3 "$parser" "$yaml_dir" "--list-json" "$use_release" "$use_arch")
+				result=$(python3 "$parser" "${parser_args[@]}")
 				echo "$result"
 				[[ "$result" == "[]" ]] && return 1
 				return 0
@@ -593,7 +829,7 @@ function module_desktops() {
 
 		"${commands[10]}")
 			show_module_help "module_desktops" "Desktops" \
-				"Examples:\n  module_desktops install de=xfce tier=minimal\n  module_desktops install de=gnome tier=full\n  module_desktops upgrade de=xfce tier=mid\n  module_desktops downgrade de=xfce tier=minimal\n  module_desktops status de=xfce\n  module_desktops supported arch=arm64 release=trixie" "native"
+				"Examples:\n  module_desktops install de=xfce tier=minimal\n  module_desktops install de=gnome tier=full\n  module_desktops upgrade de=xfce tier=mid\n  module_desktops downgrade de=xfce tier=minimal\n  module_desktops status de=xfce\n  module_desktops supported arch=arm64 release=trixie\n  module_desktops supported arch=arm64 release=trixie filter=all\n  module_desktops supported arch=riscv64 release=noble status=supported,community" "native"
 		;;
 
 		"${commands[11]}")

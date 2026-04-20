@@ -1,7 +1,7 @@
 name: xmonad
 description: "Xmonad - Haskell tiling window manager"
 display_manager: lightdm
-status: supported
+status: unsupported
 
 tiers:
   minimal:
@@ -55,7 +55,6 @@ releases:
     architectures: [arm64, amd64, armhf, riscv64]
     packages:
       - accountsservice
-      - libu2f-udev
       - pipewire-audio
       - pipewire-pulse
       - wireplumber
