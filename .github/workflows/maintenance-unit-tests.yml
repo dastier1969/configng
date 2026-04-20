@@ -23,7 +23,8 @@ jobs:
     name: "Armbian configurator unit tests"
     runs-on: "ubuntu-24.04"
     outputs:
-      DEPLOYMENT_MATRIX: "${{ steps.json.outputs.DEPLOYMENT_MATRIX }}"
+      DEPLOYMENT_MATRIX_NATIVE:   "${{ steps.json.outputs.DEPLOYMENT_MATRIX_NATIVE }}"
+      DEPLOYMENT_MATRIX_EMULATED: "${{ steps.json.outputs.DEPLOYMENT_MATRIX_EMULATED }}"
     steps:
 
       - name: Checkout
@@ -41,18 +42,38 @@ jobs:
         id: json
         run: |
 
-          delimiter="$(openssl rand -hex 8)"
-          echo "DEPLOYMENT_MATRIX<<${delimiter}" >> "${GITHUB_OUTPUT}"
-          # define OS variants and their Docker images - use pre-built Armbian images
-          declare -A docker_images=(
-            ["bookworm"]="ghcr.io/armbian/repository-update:bookworm-amd64"
-            ["trixie"]="ghcr.io/armbian/repository-update:trixie-amd64"
-            ["forky"]="ghcr.io/armbian/repository-update:forky-amd64"
-            ["jammy"]="ghcr.io/armbian/repository-update:jammy-amd64"
-            ["noble"]="ghcr.io/armbian/repository-update:noble-amd64"
-            ["resolute"]="ghcr.io/armbian/repository-update:resolute-amd64"
+          # Run each enabled test case against every arch its TESTARCH
+          # declares, using the matching arch-specific Armbian image
+          # tag. armbian/docker-armbian-build publishes a single-platform
+          # manifest per <release>-<arch> tag, so runner arch and image
+          # arch must match exactly.
+          #
+          # Runner routing:
+          #   amd64 / arm64     → self-hosted pool, label pair
+          #                       (docker + arch) for GHA's 'AND'
+          #                       label matching. Native execution.
+          #   armhf / riscv64   → self-hosted amd64 host. Tests run
+          #                       under qemu-user emulation via
+          #                       `docker run --platform linux/<arch>`
+          #                       (see gradle-emulated job).
+          # The emulation_for_arch map below is the single source of
+          # truth: any arch with a non-empty value is emulated, any
+          # arch with an empty value is native.
+          releases=("bookworm" "trixie" "forky" "jammy" "noble" "resolute")
+          arches=("amd64" "arm64" "armhf" "riscv64")
+          declare -A runner_for_arch=(
+            ["amd64"]='["docker","X64"]'
+            ["arm64"]='["docker","ARM64"]'
+            ["armhf"]='["docker","X64"]'      # emulated on amd64
+            ["riscv64"]='["docker","X64"]'    # emulated on amd64
           )
-          images=("bookworm" "trixie" "forky" "jammy" "noble" "resolute")
+          declare -A emulation_for_arch=(
+            ["amd64"]=""
+            ["arm64"]=""
+            ["armhf"]="linux/arm/v7"
+            ["riscv64"]="linux/riscv64"
+          )
+
           # read tests cases
           # Run all tests on schedule, workflow_dispatch on main, or when no files changed
           run_all_tests=false
@@ -72,42 +93,104 @@ jobs:
                   tests=()
               fi
           fi
-          # loop enabled test cases
-          for i in "${tests[@]}"; do
-             unset RELEASE
-             source "${i}"
-             if [[ -z "${RELEASE}" || "${RELEASE}" == "all" ]]; then RELEASE=all; fi
-             # if we specify releases, we need to loop docker images and use if there is a match
-             if [[ $RELEASE != "all" ]]; then
-                for j in ${images[@]}; do
-                    elements=($(echo $RELEASE | tr ':' "\n"))
-                    testid=($(echo $i | cut -d"/" -f2 | cut -d"." -f1))
-                    for SELECTED_RELEASE in "${elements[@]}"; do
-                        if [[ $j == *"${SELECTED_RELEASE}"* ]]; then
-                           echo "{\"package\":\"${i}\",\"name\":\"${TESTNAME}\",\"os\":\"$j\",\"id\":\"$testid\",\"docker_image\":\"${docker_images[$j]}\"}"
-                        fi
-                    done
-                done
-             else
-                for j in ${images[@]}; do
-                    testid=($(echo $i | cut -d"/" -f2 | cut -d"." -f1))
-                    echo "{\"package\":\"${i}\",\"name\":\"${TESTNAME}\",\"os\":\"$j\",\"id\":\"$testid\",\"docker_image\":\"${docker_images[$j]}\"}"
-                done
-             fi
-          done | jq -s >> $GITHUB_OUTPUT
-          echo "${delimiter}" >> "${GITHUB_OUTPUT}"
 
-  gradle:
+          # Emit one matrix entry per (test × release × arch). Each
+          # entry carries the runner label, the fully-qualified image
+          # tag, and the qemu platform (non-empty on emulated arches).
+          # Consumed by the gradle-native / gradle-emulated jobs below.
+          emit_entry() {
+              local pkg="$1" testname="$2" os="$3" testid="$4" arch="$5"
+              local image="ghcr.io/armbian/repository-update:${os}-${arch}"
+              # runner_json is a JSON array literal — injected unquoted
+              # so the resulting matrix value is a list, not a string.
+              local runner_json="${runner_for_arch[$arch]}"
+              local emulation="${emulation_for_arch[$arch]}"
+              echo "{\"package\":\"${pkg}\",\"name\":\"${testname}\",\"os\":\"${os}\",\"arch\":\"${arch}\",\"runner\":${runner_json},\"id\":\"${testid}\",\"docker_image\":\"${image}\",\"emulation\":\"${emulation}\"}"
+          }
+
+          # Build the matrix JSON into a variable first so we can log it
+          # before handing off to GITHUB_OUTPUT. Compact form (-c) keeps
+          # the whole array on a single line — avoids any chance of the
+          # heredoc delimiter interacting with multi-line JSON.
+          matrix_json=$(
+            for i in "${tests[@]}"; do
+               unset RELEASE TESTARCH
+               source "${i}"
+               if [[ -z "${RELEASE}" || "${RELEASE}" == "all" ]]; then RELEASE=all; fi
+               # TESTARCH: comma-separated arch allow-list per test, e.g.
+               # TESTARCH="arm64,amd64" (default) or TESTARCH="amd64" to
+               # skip the arm64 variant. "all" / empty / unset expands to
+               # the full arch set.
+               if [[ -z "${TESTARCH}" || "${TESTARCH}" == "all" ]]; then
+                   test_arches=("${arches[@]}")
+               else
+                   IFS=',' read -ra test_arches <<< "${TESTARCH// /}"
+               fi
+               testid=$(echo "$i" | cut -d"/" -f2 | cut -d"." -f1)
+               if [[ $RELEASE != "all" ]]; then
+                  # Colon-separated release allow-list (e.g. RELEASE="noble:trixie")
+                  elements=($(echo "$RELEASE" | tr ':' "\n"))
+                  for j in "${releases[@]}"; do
+                      for SELECTED_RELEASE in "${elements[@]}"; do
+                          if [[ $j == *"${SELECTED_RELEASE}"* ]]; then
+                             for arch in "${test_arches[@]}"; do
+                                emit_entry "${i}" "${TESTNAME}" "${j}" "${testid}" "${arch}"
+                             done
+                          fi
+                      done
+                  done
+               else
+                  for j in "${releases[@]}"; do
+                      for arch in "${test_arches[@]}"; do
+                         emit_entry "${i}" "${TESTNAME}" "${j}" "${testid}" "${arch}"
+                      done
+                  done
+               fi
+            done | jq -sc .
+          )
+
+          # Split the flat matrix into two: entries whose `emulation`
+          # field is empty run natively in a container, entries whose
+          # field is non-empty run under qemu-user via docker run.
+          native_json=$(echo "${matrix_json:-[]}"   | jq -c '[.[] | select(.emulation == "")]')
+          emulated_json=$(echo "${matrix_json:-[]}" | jq -c '[.[] | select(.emulation != "")]')
+
+          total_count=$(echo "${matrix_json:-[]}" | jq 'length')
+          native_count=$(echo "${native_json}"    | jq 'length')
+          emulated_count=$(echo "${emulated_json}" | jq 'length')
+          echo "::notice::Unit-test matrix: ${total_count} entries (${native_count} native, ${emulated_count} emulated)"
+          if [[ "${total_count}" == "0" ]]; then
+              echo "::warning::No matrix entries emitted — both gradle jobs will skip. Possible causes:"
+              echo "::warning::  - no tests/*.conf files with ENABLED=true"
+              echo "::warning::  - PR touches no tests/*.conf and changed-files signalled 'changed'"
+              echo "::warning::    (run_all_tests=false), so the loop iterates an empty set"
+              echo "::warning::  - a test's source failed (syntax error) and bubbled up empty"
+          fi
+
+          {
+              delim="$(openssl rand -hex 8)"
+              echo "DEPLOYMENT_MATRIX_NATIVE<<${delim}"
+              echo "${native_json}"
+              echo "${delim}"
+              delim="$(openssl rand -hex 8)"
+              echo "DEPLOYMENT_MATRIX_EMULATED<<${delim}"
+              echo "${emulated_json}"
+              echo "${delim}"
+          } >> "${GITHUB_OUTPUT}"
+
+  # Native matrix: entries whose target arch equals the runner's arch.
+  # Tests execute inside the arch-specific repository-update container
+  # with systemd running as PID-N, same as before the qemu split.
+  gradle-native:
     needs: prepare
-    if: ${{ needs.prepare.outputs.DEPLOYMENT_MATRIX != '[]' }}
+    if: ${{ needs.prepare.outputs.DEPLOYMENT_MATRIX_NATIVE != '[]' }}
     strategy:
       fail-fast: false
-      max-parallel: 128
+      max-parallel: 200
       matrix:
-        server: ${{ fromJSON(needs.prepare.outputs.DEPLOYMENT_MATRIX) }}
-    name: "${{ matrix.server.name }} (${{ matrix.server.os }})"
-    #runs-on: "ubuntu-latest"
-    runs-on: [ docker, X64 ]
+        server: ${{ fromJSON(needs.prepare.outputs.DEPLOYMENT_MATRIX_NATIVE) }}
+    name: "${{ matrix.server.name }} (${{ matrix.server.os }}/${{ matrix.server.arch }})"
+    runs-on: ${{ matrix.server.runner }}
     timeout-minutes: 60
     container:
       image: ${{ matrix.server.docker_image }}
@@ -141,26 +224,225 @@ jobs:
           # read test
           source "${{ matrix.server.package }}"
 
-          # Test case execution
+          # Test case execution. Capture the testcase's exit code
+          # without failing this step — we want to keep recording the
+          # per-test JSON even on failure so the aggregate report is
+          # complete.
+          #
+          # IMPORTANT: do NOT wrap the call as `if testcase; then ...`.
+          # Bash disables `set -e` for any command whose exit status is
+          # being tested, and that disablement propagates into subshells
+          # inside the callee — i.e. the `(set -e; ...)` body of
+          # testcase() no longer aborts on the first failed command.
+          # The first failing armbian-config call would be ignored, the
+          # second would run, and the test would report success (false
+          # positive). Call testcase bare, capture $?, then branch.
           start_time=$(date +%s)
           figlet  "RUN TEST CASE"
+          set +e
           testcase
+          tc_rc=$?
+          set -e
+          if [[ $tc_rc -eq 0 ]]; then
+              result="success"
+          else
+              result="failure"
+          fi
           finish_time=$(date +%s)
+          duration=$((finish_time - start_time))
 
-          # Generate table entry
-          echo "|${{ matrix.server.os }}| ${{ matrix.server.name }} | $((finish_time - start_time)) sec |" > ../test/${{ matrix.server.id }}-${{ matrix.server.os }}
+          # Emit a per-test JSON blob. stop job aggregates these into
+          # the final report that gets published to armbian.github.io.
+          jq -nc \
+            --arg name     "${{ matrix.server.name }}" \
+            --arg release  "${{ matrix.server.os }}" \
+            --arg arch     "${{ matrix.server.arch }}" \
+            --argjson dur  "${duration}" \
+            --arg result   "${result}" \
+            '{name:$name, release:$release, arch:$arch, duration:$dur, result:$result}' \
+            > ../test/${{ matrix.server.id }}-${{ matrix.server.os }}-${{ matrix.server.arch }}.json
 
+          # Mirror the test's exit code into the step outcome so the
+          # run's 'Run unit test' step is red on failure.
+          [[ "$result" == "success" ]] || exit 1
+
+      # if: always() — the previous step exits non-zero on test failure
+      # so the JSON result blob can mark the slot red. Without always()
+      # GH skips this upload, the stop job never sees the blob, and the
+      # aggregate report silently drops the failed row entirely.
+      #
+      # retention-days is kept short but non-trivial: long enough that
+      # a 'Re-run failed jobs' attempt (which only re-runs the slots
+      # that failed, not the ones that passed) can still see every
+      # passed slot's blob from the original attempt and carry it
+      # forward into the new aggregate. Without this, a rerun would
+      # find only the re-run slot's blob and the backfill step would
+      # flag every other slot as 'runner killed' — which is exactly
+      # what happened before this was added.
       - name: "Upload test summary"
+        if: always()
         uses: actions/upload-artifact@v7
         with:
-          name: test-${{ matrix.server.id }}-${{ matrix.server.os }}
+          name: test-${{ matrix.server.id }}-${{ matrix.server.os }}-${{ matrix.server.arch }}
           path: test
           if-no-files-found: ignore
+          retention-days: 7
+
+  # Emulated matrix: entries for foreign arches (armhf, riscv64) run
+  # on an amd64 host using `docker run --platform linux/<arch>` and
+  # qemu-user-static. Deliberately does NOT use GH's job-level
+  # `container:` key because:
+  #   1. GHA mounts the host's Node.js into the container at /__e/...
+  #      The host binary is amd64; Node-based actions (checkout,
+  #      upload-artifact) would fail to exec inside an armhf/riscv64
+  #      container. Running steps on the host + docker run-ing only
+  #      the test body avoids that.
+  #   2. systemd PID1 under qemu-user is unreliable; we skip it.
+  # Timeout is 3× the native budget — qemu-user emulation is
+  # typically 10–20× slower than native.
+  gradle-emulated:
+    needs: prepare
+    if: ${{ needs.prepare.outputs.DEPLOYMENT_MATRIX_EMULATED != '[]' }}
+    strategy:
+      fail-fast: false
+      max-parallel: 128
+      matrix:
+        server: ${{ fromJSON(needs.prepare.outputs.DEPLOYMENT_MATRIX_EMULATED) }}
+    name: "${{ matrix.server.name }} (${{ matrix.server.os }}/${{ matrix.server.arch }}-qemu)"
+    runs-on: ${{ matrix.server.runner }}
+    timeout-minutes: 180
+    steps:
+
+      # Emulated and native jobs share the same self-hosted runner
+      # and the same _work/<repo>/<repo>/ path. A previous native
+      # job (which uses job-level `container:`) runs as root inside
+      # that container — files it writes on the mounted workspace
+      # land as root-owned on the host. When the next scheduled job
+      # is this emulated one (host-side, non-root runner user),
+      # actions/checkout's cleanup can't unlink those files and
+      # fails with EACCES.
+      #
+      # Wipe any prior config/ + test/ leftover via a throwaway
+      # root-in-container run before the real checkout fires.
+      - name: "Pre-clean root-owned leftovers from prior native runs"
+        shell: bash
+        run: |
+          docker run --rm -v "$PWD":/work alpine:3 \
+            sh -c 'rm -rf /work/config /work/test' || true
+
+      - name: "Checkout Armbian configuration tool"
+        uses: actions/checkout@v6
+        with:
+          path: 'config'
+
+      - name: "Set up QEMU for ${{ matrix.server.emulation }}"
+        uses: docker/setup-qemu-action@v4
+        with:
+          platforms: ${{ matrix.server.emulation }}
+
+      - name: "Assemble armbian-config (native)"
+        shell: bash
+        run: |
+          # config-assemble.sh only cats .sh files together — output is
+          # arch-independent. Run it on the fast amd64 host; the
+          # emulated container will mount the result.
+          (cd config && bash tools/config-assemble.sh -p)
+
+      - name: "Run unit test: ${{ matrix.server.name }} via ${{ matrix.server.package }} (emulated)"
+        shell: bash
+        env:
+          TEST_NAME:    "${{ matrix.server.name }}"
+          TEST_RELEASE: "${{ matrix.server.os }}"
+          TEST_ARCH:    "${{ matrix.server.arch }}"
+          TEST_ID:      "${{ matrix.server.id }}"
+          TEST_PKG:     "${{ matrix.server.package }}"
+          TEST_IMAGE:   "${{ matrix.server.docker_image }}"
+          TEST_PLATFORM: "${{ matrix.server.emulation }}"
+        run: |
+          rm -rf test; mkdir -p test
+          json_path="test/${TEST_ID}-${TEST_RELEASE}-${TEST_ARCH}.json"
+
+          # Pre-pull the image with the right platform so we get a
+          # clean error if the image doesn't exist for the target arch.
+          docker pull --platform "${TEST_PLATFORM}" "${TEST_IMAGE}"
+
+          # Run the test body inside the emulated container. The
+          # container writes the per-test JSON result blob directly to
+          # the mounted test/ dir; the host just propagates the exit
+          # code and uploads what's there. systemd is NOT initialised —
+          # qemu-user doesn't reliably support the syscalls it uses.
+          set +e
+          docker run --rm \
+            --platform "${TEST_PLATFORM}" \
+            --privileged \
+            --security-opt seccomp=unconfined \
+            --tmpfs /run --tmpfs /run/lock \
+            -v "$PWD/config":/workspace:ro \
+            -v "$PWD/test":/test \
+            -w /workspace \
+            -e TERM=linux \
+            -e DBUS_SESSION_BUS_ADDRESS="unix:path=/run/bus/bus.sock" \
+            -e TEST_NAME -e TEST_RELEASE -e TEST_ARCH -e TEST_ID -e TEST_PKG \
+            "${TEST_IMAGE}" \
+            bash -c '
+              set +e
+              source "${TEST_PKG}"
+              start_ts=$(date +%s)
+              figlet "RUN TEST CASE (emulated)"
+              # Call testcase bare. Do NOT `if testcase; then ...`:
+              # bash inhibits set -e inside any command whose exit
+              # status is being tested, and that inhibition leaks into
+              # the subshell inside testcase(), turning the first
+              # failing armbian-config call into a silent skip
+              # (false-positive).
+              testcase
+              tc_rc=$?
+              if [[ $tc_rc -eq 0 ]]; then result="success"; else result="failure"; fi
+              finish_ts=$(date +%s)
+              jq -nc \
+                --arg name    "${TEST_NAME}" \
+                --arg release "${TEST_RELEASE}" \
+                --arg arch    "${TEST_ARCH}" \
+                --argjson dur $((finish_ts - start_ts)) \
+                --arg result  "${result}" \
+                "{name:\$name, release:\$release, arch:\$arch, duration:\$dur, result:\$result}" \
+                > "/test/${TEST_ID}-${TEST_RELEASE}-${TEST_ARCH}.json"
+              [[ "$result" == "success" ]]
+            '
+          docker_exit=$?
+          set -e
+
+          # If the container never produced the JSON (image pull failed,
+          # qemu crash, etc), synthesise a failure blob so the stop job
+          # still sees an entry for this matrix slot.
+          if [[ ! -s "$json_path" ]]; then
+              jq -nc \
+                --arg name    "${TEST_NAME}" \
+                --arg release "${TEST_RELEASE}" \
+                --arg arch    "${TEST_ARCH}" \
+                --argjson dur 0 \
+                --arg result  "failure" \
+                '{name:$name, release:$release, arch:$arch, duration:$dur, result:$result}' \
+                > "$json_path"
+          fi
+
+          exit $docker_exit
+
+      # See gradle-native's upload step for the reason always() +
+      # retention-days are needed.
+      - name: "Upload test summary"
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: test-${{ matrix.server.id }}-${{ matrix.server.os }}-${{ matrix.server.arch }}
+          path: test
+          if-no-files-found: ignore
+          retention-days: 7
 
   stop:
     name: "Merge test artifacts"
     if: always()
-    needs: gradle
+    needs: [prepare, gradle-native, gradle-emulated]
     runs-on: ubuntu-24.04
     steps:
 
@@ -171,15 +453,197 @@ jobs:
           pattern: test-*
           merge-multiple: true
 
-      - name: Install
+      # Cross-check downloaded blobs against the matrix prepare
+      # emitted. A missing blob means the matrix slot ran but never
+      # wrote its result JSON — typically because the runner itself
+      # was killed mid-step (OOM, self-hosted pool reclaim, hosted
+      # 6h ceiling), which leaves GH marking the job as failure with
+      # the `Run unit test` step stuck at in_progress and
+      # `Upload test summary` stuck at pending. if: always() can't
+      # help there because no step completes on a runner that
+      # vanished.
+      #
+      # Synthesise a failure row for each missing slot so the
+      # aggregate report is authoritative: every expected
+      # (test, release, arch) triple shows up, with a note pointing
+      # at the runner-kill failure mode for triage.
+      - name: "Backfill failure blobs for matrix slots that never uploaded"
+        shell: bash
         run: |
+          mkdir -p test
+          # Combine native + emulated matrices; this is exactly what
+          # the two gradle jobs fanned out over, so every entry here
+          # should have a matching test/<id>-<os>-<arch>.json.
+          expected_json=$(jq -s '.[0] + .[1]' \
+            <(cat <<<'${{ needs.prepare.outputs.DEPLOYMENT_MATRIX_NATIVE }}') \
+            <(cat <<<'${{ needs.prepare.outputs.DEPLOYMENT_MATRIX_EMULATED }}'))
+          expected_count=$(jq 'length' <<<"$expected_json")
+          echo "::notice::Expected ${expected_count} matrix slots; $(find test -maxdepth 1 -name '*.json' 2>/dev/null | wc -l) JSON blob(s) uploaded"
 
-          echo "# Succesful tests:" >> $GITHUB_STEP_SUMMARY
-          echo "|Release|Test name|Duration|" >> $GITHUB_STEP_SUMMARY
-          echo "|:---|:---|---:|" >> $GITHUB_STEP_SUMMARY
-          cat test/* | sed '$ s/.$//' >> $GITHUB_STEP_SUMMARY
+          missing=0
+          while read -r entry; do
+              id=$(jq   -r '.id'   <<<"$entry")
+              os=$(jq   -r '.os'   <<<"$entry")
+              arch=$(jq -r '.arch' <<<"$entry")
+              name=$(jq -r '.name' <<<"$entry")
+              blob="test/${id}-${os}-${arch}.json"
+              if [[ ! -s "$blob" ]]; then
+                  missing=$((missing + 1))
+                  echo "::warning::No blob for ${id} ${os}/${arch} — synthesising failure row (runner likely killed mid-step)"
+                  jq -nc \
+                      --arg name    "$name" \
+                      --arg release "$os" \
+                      --arg arch    "$arch" \
+                      --argjson dur 0 \
+                      --arg result  "failure" \
+                      --arg note    "runner killed or step did not complete" \
+                      '{name:$name, release:$release, arch:$arch, duration:$dur, result:$result, note:$note}' \
+                      > "$blob"
+              fi
+          done < <(jq -c '.[]' <<<"$expected_json")
+          echo "::notice::Backfilled ${missing} missing slot(s) with synthetic failure blobs"
 
-      - uses: geekyeggo/delete-artifact@v6
+      - name: "Aggregate per-test JSONs into a single report"
+        id: aggregate
+        run: |
+          mkdir -p report
+          generated_at="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+
+          # Combine every test/*.json into { generated_at, tests: [...] }.
+          # Sort by release, arch, name for a stable output.
+          jq -s \
+            --arg generated_at "${generated_at}" \
+            '{
+              generated_at: $generated_at,
+              tests: (. | sort_by(.release, .arch, .name))
+            }' \
+            test/*.json 2>/dev/null > report/unit-test-results.json \
+            || echo '{"generated_at":"'"${generated_at}"'","tests":[]}' > report/unit-test-results.json
+
+          total=$(jq '.tests | length'                     report/unit-test-results.json)
+          ok=$(jq    '[.tests[] | select(.result=="success")] | length' report/unit-test-results.json)
+          ko=$(jq    '[.tests[] | select(.result=="failure")] | length' report/unit-test-results.json)
+          echo "total=${total}"   >> "$GITHUB_OUTPUT"
+          echo "success=${ok}"    >> "$GITHUB_OUTPUT"
+          echo "failure=${ko}"    >> "$GITHUB_OUTPUT"
+
+          {
+              echo "# Unit tests: ${ok}/${total} passed (${ko} failed)"
+              echo ""
+              echo "|Release|Arch|Test name|Duration|Result|Note|"
+              echo "|:---|:---|:---|---:|:---:|:---|"
+              # .note is only set on backfilled rows — default to
+              # empty with `// ""` so normal success rows render as
+              # an empty note cell rather than `null`.
+              jq -r '.tests[] | "|\(.release)|\(.arch)|\(.name)|\(.duration) sec|\(.result)|\(.note // "")|"' \
+                 report/unit-test-results.json
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: "Upload aggregated report as a workflow artifact"
+        uses: actions/upload-artifact@v7
         with:
-          name: |
-            test-*
+          name: unit-test-results
+          path: report/unit-test-results.json
+          if-no-files-found: error
+          retention-days: 30
+
+      - name: "Publish results to armbian/armbian.github.io data branch"
+        # Only publish when there's a meaningful report AND we're
+        # running on the default branch or a scheduled/dispatch run.
+        # PRs (especially from forks) don't get the PAT and shouldn't
+        # write to the public data feed anyway.
+        #
+        # Target the `data` branch (not main). armbian.github.io
+        # keeps site source on main and machine-generated feeds on a
+        # separate `data` branch, which:
+        #   - keeps Jekyll/site rebuilds from firing on every feed
+        #     refresh (no churn on main)
+        #   - lets humans and automation commit without racing each
+        #     other on the same branch
+        # Same principle as armbian.github.io's
+        # data-update-jira-excerpt.yml, which commits jira-*.html
+        # to `data` and then repo-dispatches a web-reload event.
+        if: >-
+          steps.aggregate.outputs.total != '0'
+          && (github.event_name == 'schedule'
+              || github.event_name == 'workflow_dispatch'
+              || github.event_name == 'repository_dispatch'
+              || github.ref == 'refs/heads/main')
+        env:
+          GH_PAT: ${{ secrets.ACCESS_TOKEN }}
+        run: |
+          set -euo pipefail
+          if [[ -z "${GH_PAT}" ]]; then
+              echo "::warning::ACCESS_TOKEN secret is not set; skipping publish step"
+              exit 0
+          fi
+          git config --global user.name  "armbian-ci-bot"
+          git config --global user.email "armbian-ci-bot@users.noreply.github.com"
+
+          git clone \
+            "https://x-access-token:${GH_PAT}@github.com/armbian/armbian.github.io.git" \
+            armbian.github.io
+          cd armbian.github.io
+          # Switch to the feed-only branch. --track creates a local
+          # branch tracking origin/data on the first run.
+          git fetch origin data
+          git checkout data
+
+          mkdir -p data
+          cp "${GITHUB_WORKSPACE}/report/unit-test-results.json" data/unit-test-results.json
+
+          git add data/unit-test-results.json
+          if git diff --cached --quiet; then
+              echo "::notice::unit-test-results.json unchanged — nothing to publish"
+              exit 0
+          fi
+          git commit -m "data: refresh unit-test-results.json ($(date -u +%Y-%m-%dT%H:%MZ))"
+
+          # Retry loop: pulls + rebases between attempts so a racing
+          # commit from a sibling data-feed workflow (jira excerpts,
+          # directory listing, …) doesn't blow the push.
+          max_attempts=3
+          attempt=1
+          while (( attempt <= max_attempts )); do
+              if git push origin data; then
+                  echo "Pushed unit-test-results.json to data branch on attempt ${attempt}"
+                  break
+              fi
+              echo "::warning::Push failed on attempt ${attempt}; rebasing onto origin/data and retrying"
+              git pull --rebase origin data || echo "::warning::Rebase failed, will retry push anyway"
+              attempt=$((attempt + 1))
+          done
+          if (( attempt > max_attempts )); then
+              echo "::error::Failed to push unit-test-results.json after ${max_attempts} attempts"
+              exit 1
+          fi
+
+      - name: "Trigger web reload on armbian.github.io"
+        # Data branch commits don't rebuild the site on their own.
+        # Fire the same repository_dispatch event that the other
+        # data-feed workflows use so the site picks up the new
+        # unit-test-results.json on its next directory-listing pass.
+        if: >-
+          steps.aggregate.outputs.total != '0'
+          && (github.event_name == 'schedule'
+              || github.event_name == 'workflow_dispatch'
+              || github.event_name == 'repository_dispatch'
+              || github.ref == 'refs/heads/main')
+        uses: peter-evans/repository-dispatch@v4
+        with:
+          token: ${{ secrets.ACCESS_TOKEN }}
+          repository: armbian/armbian.github.io
+          event-type: "Web: Directory listing"
+
+      # Previously a geekyeggo/delete-artifact step lived here to clean
+      # up the per-test blobs after aggregation, but that made
+      # 'Re-run failed jobs' useless: only the re-run slots would
+      # upload fresh blobs, and every other slot (which didn't run
+      # again) looked missing to the rerun's stop job. The backfill
+      # then marked 67/68 slots as 'runner killed' even though they
+      # passed cleanly on the first attempt.
+      #
+      # Drop the delete step and rely on the per-blob retention-days
+      # (7d) set on each 'Upload test summary' to auto-expire the
+      # blobs. That preserves rerun fidelity while still bounding
+      # storage.
