@@ -15,24 +15,39 @@ install -Dv /dev/null $keys
 install -Dv /dev/null $profile
 
 # set default shortcuts
-echo "
-[org/gnome/shell]
-favorite-apps = ['terminator.desktop', 'org.gnome.Nautilus.desktop', 'armbian-imager.desktop']
+# Build the favorites list dynamically — armbian-imager is only
+# published for amd64/arm64 (see common.yaml mid-tier arch gate),
+# so skip the shortcut on arches where the .desktop file isn't
+# going to exist. Uses the file presence at postinst time as the
+# single source of truth: if apt just installed armbian-imager,
+# the .desktop is there; if it was stripped via tier_overrides,
+# it isn't, and the favorites bar stays clean instead of showing
+# a broken shortcut.
+favorites="'terminator.desktop', 'org.gnome.Nautilus.desktop'"
+if [ -f /usr/share/applications/armbian-imager.desktop ]; then
+	favorites="${favorites}, 'armbian-imager.desktop'"
+fi
 
-[org/gnome/settings-daemon/plugins/power]
-sleep-inactive-ac-timeout='0'
+cat >> "$keys" <<- EOF
 
-[org/gnome/desktop/background]
-picture-uri='file:///usr/share/backgrounds/armbian/armbian03-Dre0x-Minum-dark-3840x2160.jpg'
-picture-options='zoom'
-primary-color='#456789'
-secondary-color='#FFFFFF'
+	[org/gnome/shell]
+	favorite-apps = [${favorites}]
 
-[org/gnome/desktop/screensaver]
-picture-uri='file:///usr/share/backgrounds/armbian/armbian03-Dre0x-Minum-dark-3840x2160.jpg'
-picture-options='zoom'
-primary-color='#456789'
-secondary-color='#FFFFFF'" >> $keys
+	[org/gnome/settings-daemon/plugins/power]
+	sleep-inactive-ac-timeout='0'
+
+	[org/gnome/desktop/background]
+	picture-uri='file:///usr/share/backgrounds/armbian/armbian03-Dre0x-Minum-dark-3840x2160.jpg'
+	picture-options='zoom'
+	primary-color='#456789'
+	secondary-color='#FFFFFF'
+
+	[org/gnome/desktop/screensaver]
+	picture-uri='file:///usr/share/backgrounds/armbian/armbian03-Dre0x-Minum-dark-3840x2160.jpg'
+	picture-options='zoom'
+	primary-color='#456789'
+	secondary-color='#FFFFFF'
+	EOF
 
 echo "user-db:user
 system-db:local" >> $profile
@@ -49,16 +64,6 @@ dconf update
 # stub being a valid desktop file, abort()s, and Settings will not
 # launch at all. Strip the stub if it exists.
 rm -f /usr/local/share/applications/gnome-ubuntu-panel.desktop
-
-# Let NetworkManager coexist with systemd-networkd (only if networkd is active)
-if command -v NetworkManager > /dev/null 2>&1 && systemctl is-active --quiet systemd-networkd 2>/dev/null; then
-	mkdir -p /etc/NetworkManager/conf.d
-	cat > /etc/NetworkManager/conf.d/10-armbian-unmanaged.conf <<- NMEOF
-	[keyfile]
-	unmanaged-devices=type:ethernet
-	NMEOF
-	systemctl restart NetworkManager 2>/dev/null || true
-fi
 
 #compile schemas
 if [ -d /usr/share/glib-2.0/schemas ]; then

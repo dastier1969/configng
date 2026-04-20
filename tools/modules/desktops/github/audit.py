@@ -118,14 +118,17 @@ def list_desktops(yaml_dir: Path, include_unsupported: bool = False) -> tuple[li
 
     By default, DEs with `status: unsupported` in their YAML are
     excluded from the audit. These are typically vendor- or arch-
-    specific desktops (bianbu = SpacemiT riscv64, kde-neon = Ubuntu
-    only, deepin/budgie = community-maintained, often only available
-    on specific releases) where the audit script's "does this package
-    exist on every (release, arch)?" check would generate noise that
-    isn't actionable.
+    specific desktops (e.g. bianbu = SpacemiT riscv64 only) where the
+    audit script's "does this package exist on every (release, arch)?"
+    check would generate noise that isn't actionable.
 
-    Pass include_unsupported=True to audit them anyway (e.g. when
-    promoting one to `status: supported`).
+    DEs with `status: community` (best-effort, maintained outside the
+    first-class support tier) ARE audited — drift in a community DE is
+    still worth reporting even if a maintainer may choose not to act on
+    it immediately.
+
+    Pass include_unsupported=True to audit unsupported DEs anyway (e.g.
+    when evaluating promoting one to `status: community` / `supported`).
     """
     try:
         import yaml as pyyaml
@@ -337,7 +340,7 @@ def audit(build_repo: Path, configng_repo: Path,
             for tier in tiers_to_check:
                 parsed = parse_desktop_yaml(yaml_dir, parser_path, de,
                                             codename, arch, tier)
-                if not parsed.get("DESKTOP_SUPPORTED") == "yes":
+                if not parsed.get("DESKTOP_AVAILABLE") == "yes":
                     # the YAML doesn't support this (DE, release, arch);
                     # skip it.
                     continue
