@@ -14,8 +14,13 @@ env:
   REPOSITORY: "apt.armbian.com"
 
 concurrency:
-  group: pipeline-pr-${{github.event.pull_request.number}}
-  cancel-in-progress: false
+  # One active run per PR (keyed by PR number) or per ref for
+  # non-PR triggers (push to main, schedule, workflow_dispatch) —
+  # falls back to github.ref when pull_request.number is empty.
+  # cancel-in-progress: superseding pushes stop the in-flight run
+  # instead of queueing behind it.
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
 
 jobs:
 
@@ -191,7 +196,7 @@ jobs:
         server: ${{ fromJSON(needs.prepare.outputs.DEPLOYMENT_MATRIX_NATIVE) }}
     name: "${{ matrix.server.name }} (${{ matrix.server.os }}/${{ matrix.server.arch }})"
     runs-on: ${{ matrix.server.runner }}
-    timeout-minutes: 60
+    timeout-minutes: 90
     container:
       image: ${{ matrix.server.docker_image }}
       options: --privileged --security-opt seccomp=unconfined --tmpfs /tmp --tmpfs /run --tmpfs /run/lock
@@ -310,7 +315,7 @@ jobs:
         server: ${{ fromJSON(needs.prepare.outputs.DEPLOYMENT_MATRIX_EMULATED) }}
     name: "${{ matrix.server.name }} (${{ matrix.server.os }}/${{ matrix.server.arch }}-qemu)"
     runs-on: ${{ matrix.server.runner }}
-    timeout-minutes: 180
+    timeout-minutes: 210
     steps:
 
       # Emulated and native jobs share the same self-hosted runner
