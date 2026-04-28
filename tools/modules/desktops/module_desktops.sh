@@ -102,6 +102,224 @@ function _module_desktops_write_apt_pin() {
 }
 
 #
+# Wire up the Rockchip 3D + multimedia stack on rk3588-family boards
+# running the vendor kernel, when a Wayland-capable desktop is being
+# installed. Two stages:
+#
+#   1. On noble specifically: add amazingfated's rockchip-multimedia
+#      PPA (ppa:liujianfeng1994/rockchip-multimedia), pin it at 1001,
+#      and pull the hardware-accelerated userspace —
+#      rockchip-multimedia-config, libv4l-rkmpp (V4L2 -> MPP codec
+#      plugin), libwidevinecdm0 (so Netflix/Spotify/DRM video
+#      actually plays), and chromium-browser (the PPA's rk3588-VPU +
+#      Widevine patched build, distinct from the stock `chromium`
+#      package). Pin priority 1001 is required to override
+#      apt.armbian.com and the Ubuntu archive.
+#
+#   2. On any non-legacy release: enable the panthor-gpu DT overlay.
+#      panthor-gpu is the Mesa panthor-kbase GPU driver overlay —
+#      required for hardware-accelerated GL / Vulkan / GBM on rk3588
+#      under Mesa + vendor kernel, unused (and ignored) elsewhere.
+#
+# Mirrors armbian/build's extensions/mesa-vpu.sh so a desktop
+# installed on top of a minimal image converges on the same state
+# an image-built desktop would have.
+#
+# Gating (both stages):
+#   - BOARDFAMILY rockchip-rk3588 / rk35xx, BRANCH=vendor.
+#   - Skip tier=minimal — neither the Mesa stack nor the GStreamer
+#     plugin has a consumer in minimal.
+#   - Skip xfce / i3-wm — X11-only, no GBM/Wayland path.
+#
+# Extra gating:
+#   - PPA stage: noble only. The PPA publishes against noble; on
+#     other releases the .debs would hit ABI mismatches.
+#   - Overlay stage: skip bookworm / bullseye / buster / focal /
+#     jammy — panthor kernel bits didn't land in a usable shape.
+#
+# BOARDFAMILY + BRANCH are globals set at configng init time by
+# module_env_init.sh (which sources /etc/armbian-release); present
+# in the chroot under mode=build because armbian-base-files is
+# installed before module_desktops. Overlay write is delegated to
+# module_devicetree_overlays (atomic temp+mv, .bak preserved,
+# validates name against the discovered .dtbo set, idempotent).
+#
+function _module_desktops_rockchip_multimedia() {
+	# Board/branch gate — shared by both stages.
+	if [[ ! "${BOARDFAMILY:-}" =~ ^(rockchip-rk3588|rk35xx)$ ]]; then
+		debug_log "_module_desktops_rockchip_multimedia: BOARDFAMILY='${BOARDFAMILY:-}' — not rk3588-family, skipping"
+		return 0
+	fi
+	if [[ "${BRANCH:-}" != "vendor" ]]; then
+		debug_log "_module_desktops_rockchip_multimedia: BRANCH='${BRANCH:-}' — not vendor, skipping"
+		return 0
+	fi
+
+	# Tier gate — minimal doesn't install the Mesa / GStreamer stack
+	# that would use any of this.
+	if [[ "${tier:-}" == "minimal" ]]; then
+		debug_log "_module_desktops_rockchip_multimedia: tier=minimal, skipping"
+		return 0
+	fi
+
+	# X11-only DEs — no Wayland compositor, no GBM path, and no
+	# chromium-in-Wayland benefit from the PPA build either.
+	case "${de:-}" in
+		xfce|i3-wm)
+			debug_log "_module_desktops_rockchip_multimedia: de=${de} is X11-only, skipping"
+			return 0
+		;;
+	esac
+
+	# ---------------------------------------------------------------
+	# Stage 1: amazingfated rockchip-multimedia PPA (noble only).
+	# ---------------------------------------------------------------
+	if [[ "${DISTROID:-}" == "noble" ]]; then
+		display_alert "Adding amazingfated's multimedia PPA" "liujianfeng1994/rockchip-multimedia" "info" 2>/dev/null \
+			|| echo "Adding amazingfated's multimedia PPA (liujianfeng1994/rockchip-multimedia)"
+
+		# add-apt-repository lives in software-properties-common —
+		# minimal images do not ship it. Pull it on demand; track
+		# via pkg_install so uninstall removes it.
+		if ! command -v add-apt-repository > /dev/null 2>&1; then
+			if ! pkg_install software-properties-common; then
+				echo "Warning: could not install software-properties-common; skipping rockchip-multimedia PPA" >&2
+				return 0
+			fi
+		fi
+
+		# --yes: non-interactive. --no-update: skip the implicit
+		# apt-get update — we run pkg_update ourselves once the pin
+		# is in place so the first resolution already sees priority
+		# 1001 for the PPA.
+		if ! DEBIAN_FRONTEND=noninteractive add-apt-repository --yes --no-update ppa:liujianfeng1994/rockchip-multimedia; then
+			echo "Warning: add-apt-repository ppa:liujianfeng1994/rockchip-multimedia failed; skipping multimedia packages" >&2
+			return 0
+		fi
+
+		# Pin the PPA above both apt.armbian.com and the Ubuntu
+		# archive. Priority 1001 is required (not 990) so the PPA's
+		# patched chromium can *replace* an already-installed
+		# apt.armbian.com chromium — a downgrade-across-origins that
+		# 990 would refuse.
+		display_alert "Pinning amazingfated's multimedia PPA" "priority 1001" "info" 2>/dev/null \
+			|| echo "Pinning amazingfated's multimedia PPA (priority 1001)"
+		local pin_file="/etc/apt/preferences.d/amazingfated-rk3588-rockchip-multimedia-pin"
+		local pin_tmp="${pin_file}.tmp"
+		if ! cat > "$pin_tmp" <<- EOF
+		Package: *
+		Pin: release o=LP-PPA-liujianfeng1994-rockchip-multimedia
+		Pin-Priority: 1001
+		EOF
+		then
+			echo "Warning: failed to write ${pin_tmp}; multimedia PPA left unpinned" >&2
+			rm -f "$pin_tmp"
+		elif ! mv "$pin_tmp" "$pin_file"; then
+			echo "Warning: failed to install ${pin_file}; multimedia PPA left unpinned" >&2
+			rm -f "$pin_tmp"
+		fi
+
+		# Refresh apt with the PPA now in sources + the pin in place.
+		pkg_update
+
+		# libv4l-0 must be installed BEFORE rockchip-multimedia-config
+		# — the latter's postinst expects the V4L2 userspace library to
+		# already be on the system. Mirrors the ordering in
+		# armbian/build's extensions/mesa-vpu.sh (separate apt-get
+		# install call before the rockchip-multimedia-* batch).
+		pkg_install -o Dpkg::Options::="--force-confdef" -o Dpkg::Options::="--force-confold" libv4l-0 || \
+			echo "Warning: libv4l-0 install failed; rockchip-multimedia postinst may fail" >&2
+
+		# Install the Rockchip multimedia + Widevine stack. These
+		# packages all come from the PPA (except libwidevinecdm0 on
+		# arm64, which the PPA specifically republishes with a
+		# working arm64 binary). pkg_install tracks them in
+		# ACTUALLY_INSTALLED so uninstall removes them.
+		display_alert "Installing Rockchip multimedia + Widevine" "de=${de} tier=${tier}" "info" 2>/dev/null \
+			|| echo "Installing Rockchip multimedia + Widevine (de=${de} tier=${tier})"
+		pkg_install -o Dpkg::Options::="--force-confdef" -o Dpkg::Options::="--force-confold" \
+			rockchip-multimedia-config libv4l-rkmpp libwidevinecdm0 chromium-browser || \
+			echo "Warning: rockchip multimedia package install failed (see above)" >&2
+
+		# /etc/chromium.d drop-in for EME-based streaming services.
+		# Debian's chromium launcher sources every file in this
+		# directory and accumulates $CHROMIUM_FLAGS before exec.
+		#
+		# 1. --enable-unsafe-swiftshader
+		#    Chromium 128+ removed the silent software WebGL fallback
+		#    (crbug.com/242999). Modern EME players — Netflix's
+		#    "Akira" client, Disney+, Amazon Prime Video — rely on a
+		#    working WebGL context for client-side init even when
+		#    hardware acceleration is otherwise present. Without an
+		#    explicit opt-in the context creation fails silently and
+		#    the player aborts with opaque errors (Netflix surfaces
+		#    it as error code E100). No-op when hardware WebGL works;
+		#    only matters as a fallback when the GPU sandbox rejects
+		#    the context.
+		#
+		# 2. --user-agent (ChromeOS spoof)
+		#    Netflix's Akira player is the only mainstream service
+		#    that rejects the legacy Linux UA server-side —
+		#    `osname=linux` is not on its supported-platform
+		#    whitelist regardless of arch, while `osname=cros`
+		#    (ChromeOS) is. Same workaround Raspberry Pi OS
+		#    hardcodes. Safe because Chromium 107+ already freezes
+		#    navigator.platform to "Linux x86_64" on every Linux
+		#    host (UA Reduction), and Netflix doesn't query
+		#    Sec-CH-UA-Arch via Accept-CH — so the fiction is
+		#    contained to the legacy UA string; Client Hints headers
+		#    and JS APIs keep reporting the real platform.
+		#
+		# IMPORTANT: the stock Chromium launcher (/usr/bin/chromium)
+		# applies word-splitting to $CHROMIUM_FLAGS and cannot pass a
+		# flag that contains spaces — which any valid User-Agent
+		# string does. Armbian ships a drop-in replacement wrapper at
+		# /usr/bin/chromium that execs via `eval` so quoted flags
+		# survive; the upstream wrapper is preserved via dpkg-divert
+		# at /usr/bin/chromium.upstream. This drop-in is only fully
+		# effective when that wrapper is in place.
+		local chromium_d="/etc/chromium.d"
+		local chromium_flags_file="${chromium_d}/armbian-rk3588-multimedia"
+		mkdir -p "$chromium_d"
+		if ! cat > "$chromium_flags_file" <<- 'EOF'
+		# Managed by armbian-config (module_desktops). Do not edit by hand.
+		# Enables WebGL software fallback and spoofs a ChromeOS UA so
+		# Netflix / Disney+ / Prime Video work on the PPA's rk3588
+		# chromium-browser build.
+		export CHROMIUM_FLAGS="$CHROMIUM_FLAGS --enable-unsafe-swiftshader"
+		export CHROMIUM_FLAGS="$CHROMIUM_FLAGS --user-agent=\"Mozilla/5.0 (X11; CrOS aarch64 15359.58.0) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/132.0.0.0 Safari/537.36\""
+		EOF
+		then
+			echo "Warning: failed to write ${chromium_flags_file}; streaming services may not work in chromium-browser" >&2
+		fi
+	fi
+
+	# ---------------------------------------------------------------
+	# Stage 2: panthor-gpu DT overlay (any non-legacy release).
+	# ---------------------------------------------------------------
+	case "${DISTROID:-}" in
+		bookworm|bullseye|buster|focal|jammy)
+			debug_log "_module_desktops_rockchip_multimedia: release '${DISTROID}' predates usable panthor, skipping overlay"
+			return 0
+		;;
+	esac
+
+	# Delegate to the existing DT overlays module. It reads/writes
+	# /boot/armbianEnv.txt atomically, keeps a .bak, and silently
+	# no-ops if 'panthor-gpu' is already enabled. 'install' also
+	# validates the name against the .dtbo set discovered on the
+	# running / in-chroot system, so if the overlay isn't shipped
+	# (e.g. kernel without panthor), we get a loud error instead of
+	# a silently broken image.
+	display_alert "Enabling panthor-gpu DT overlay" "BOARDFAMILY=${BOARDFAMILY} BRANCH=vendor" "info" 2>/dev/null \
+		|| echo "Enabling panthor-gpu DT overlay (BOARDFAMILY=${BOARDFAMILY} BRANCH=vendor)"
+	module_devicetree_overlays install overlays=panthor-gpu || \
+		echo "Warning: failed to enable panthor-gpu overlay (see above)" >&2
+
+	return 0
+}
+
+#
 # Switch the host from systemd-networkd (the Armbian minimal image
 # baseline) to NetworkManager so the freshly-installed desktop's
 # NM-applet / Quick Settings tile actually control the network link.
@@ -280,23 +498,19 @@ function module_desktops() {
 				echo "Warning: '${de}' is not supported on ${DISTROID}/$(dpkg --print-architecture)" >&2
 			fi
 
-			# Suppress interactive prompts end-to-end. apt + dpkg both
-			# need coaxing:
-			#   - DEBIAN_FRONTEND=noninteractive: stops apt opening a
-			#     TUI for debconf questions.
-			#   - `--force-confdef --force-confold` on pkg_install
-			#     (below): when a conffile differs from both the
-			#     shipped version AND any local edit, dpkg normally
-			#     prompts "keep / replace / diff / shell". These
-			#     flags say "always pick the default (=keep local)"
-			#     silently. Without `--force-confdef`, `--force-confold`
-			#     alone still prompts when both sides have diverged.
-			#   - debconf-set-selections pre-seeds known interactive
-			#     package questions: the `code` (Microsoft VSCode)
-			#     postinst asks about adding Microsoft's apt repo —
-			#     say no, apt.armbian.com already hosts code and a
-			#     parallel source would race against our pin.
-			export DEBIAN_FRONTEND=noninteractive
+			# Suppress interactive prompts during automated installation:
+			#   - pkg_install / apt_operation_progress handle DEBIAN_FRONTEND=noninteractive
+			#     internally to prevent apt/dpkg prompts (works in chroot and build envs)
+			#   - `--force-confdef --force-confold` on pkg_install (below): when a
+			#     conffile differs from both the shipped version AND any local edit,
+			#     dpkg normally prompts "keep / replace / diff / shell". These flags
+			#     say "always pick the default (=keep local)" silently. Without
+			#     `--force-confdef`, `--force-confold` alone still prompts when both
+			#     sides have diverged.
+			#   - debconf-set-selections pre-seeds known interactive package questions:
+			#     the `code` (Microsoft VSCode) postinst asks about adding Microsoft's
+			#     apt repo — say no, apt.armbian.com already hosts code and a parallel
+			#     source would race against our pin.
 			debconf-set-selections 2>/dev/null <<- 'EOF' || true
 			encfs encfs/security-information boolean true
 			code code/add-microsoft-repo boolean false
@@ -404,6 +618,16 @@ function module_desktops() {
 			# otherwise the UI shows an always-disconnected state
 			# even though the machine is online.
 			_module_desktops_configure_networking
+
+			# Wire up the Rockchip 3D + multimedia stack on
+			# rk3588-family / vendor-kernel boards: panthor-gpu DT
+			# overlay (Mesa GBM path), and — on noble — the
+			# amazingfated multimedia PPA with its hardware-
+			# accelerated chromium, gstreamer plugins, libv4l-rkmpp,
+			# and libwidevinecdm0. No-op on every other board /
+			# branch / release / tier / DE combination. Mirrors
+			# armbian/build's extensions/mesa-vpu.sh.
+			_module_desktops_rockchip_multimedia
 
 			# add user to desktop groups
 			# User-specific setup: group membership, skel propagation,
@@ -598,6 +822,24 @@ function module_desktops() {
 			if [[ "$de" =~ ^[a-zA-Z0-9._-]+$ ]]; then
 				rm -f "/etc/apt/preferences.d/${de}"
 			fi
+
+			# Drop the amazingfated rockchip-multimedia PPA pin written
+			# by _module_desktops_rockchip_multimedia. Pin priority 1001
+			# overrides the distro for *every* package on the system,
+			# not just the DE's — leaving it behind after the multimedia
+			# packages are gone would keep the PPA outranking the
+			# archive on the next unrelated apt upgrade. Safe to rm
+			# unconditionally: the file is absent when the DE had no
+			# PPA stage (non-noble, non-rk3588, tier=minimal, etc.).
+			rm -f /etc/apt/preferences.d/amazingfated-rk3588-rockchip-multimedia-pin
+
+			# Drop the /etc/chromium.d streaming drop-in written by
+			# _module_desktops_rockchip_multimedia. The spoofed
+			# ChromeOS User-Agent applies to ANY chromium launch, not
+			# just the PPA-patched build — if the desktop is being
+			# removed, the user is almost certainly done with that
+			# customisation too. Safe to rm unconditionally.
+			rm -f /etc/chromium.d/armbian-rk3588-multimedia
 
 			# Reclaim disk space: clear apt's downloaded .deb cache. A full
 			# DE removal frees hundreds of MB of installed files; the
