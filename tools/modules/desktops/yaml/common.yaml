@@ -54,6 +54,20 @@ tiers:
       - gnome-calculator
       - loupe                # GTK4 image viewer; on bookworm fall back via release block
       - vlc                  # media player
+      - vlc-bin              # binaries from VLC
+      - vlc-data             # common data for VLC
+      - vlc-plugin-access-extra # multimedia player and streamer (extra access plugins)
+      - vlc-plugin-base      # multimedia player and streamer (base plugins)
+      - vlc-plugin-fluidsynth # FluidSynth plugin for VLC
+      - vlc-plugin-notify    # LibNotify plugin for VLC
+      - vlc-plugin-qt        # multimedia player and streamer (Qt plugin)
+      - vlc-plugin-samba     # Samba plugin for VLC
+      - vlc-plugin-skins2    # multimedia player and streamer (Skins2 plugin)
+      - vlc-plugin-svg       # SVG plugin for VLC
+      - vlc-plugin-video-output # multimedia player and streamer (video output plugins)
+      - vlc-plugin-video-splitter # multimedia player and streamer (video splitter plugins)
+      - vlc-plugin-visualization # multimedia player and streamer (visualization plugins)
+      - vlc-plugin-pipewire  # PipeWire audio plugins for VLC
       - file-roller          # archive manager
       - transmission-gtk     # torrent client
       - armbian-imager       # SD-card image flasher (from apt.armbian.com)
@@ -89,6 +103,10 @@ tiers:
       - gimp
       - inkscape
       - thunderbird
+      - thunderbird-bidiui    # BiDirectional support for Thunderbird
+      - birdtray              # system tray notifications for Thunderbird
+      - webext-tb-goodies     # Useful Add-Ons for Thunderbird
+      - webext-xnotepp        # Persistent sticky notes for Thunderbird
       - audacity
       - code                  # vscode (from apt.armbian.com)
 

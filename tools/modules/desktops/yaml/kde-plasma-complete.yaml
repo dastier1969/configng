@@ -1,5 +1,5 @@
 name: kde-plasma
-description: "KDE Plasma Complete - Complete feature-rich customizable desktop"
+description: "KDE Plasma Complete - Complete feature-rich customizable desktop Desktop/Tablet/Phone"
 display_manager: sddm
 status: supported
 
@@ -10,10 +10,11 @@ status: supported
 # libreoffice-gtk3 for libreoffice-kde so the office suite uses the
 # Plasma integration backend.
 tiers:
-  minimal:
+  full:
     packages:
       - task-kde-desktop
       - kde-full
+      - plasma-mobile-full
       - aha
       - amarok
       - amarok-utils
@@ -22,8 +23,6 @@ tiers:
       - bolt
       - bolt-tests
       - breeze-gtk-theme
-      - busybox-static
-      - busybox-syslogd
       - calligra
       - calligra-data
       - calligra-libs
@@ -36,14 +35,32 @@ tiers:
       - calligrawords-data
       - clinfo
       - dmidecode
+      - dmz-cursor-theme
       - dolphin-plugins
       - dragonplayer
+      - easyeffects
       - edid-decode
       - falkon
       - fpc
       - fpc-source
       - frameworkintegration6
+      - gstreamer1.0
+      - gstreamer1.0-gl
+      - gstreamer1.0-gtk4
+      - gstreamer1.0-libav
+      - gstreamer1.0-packagekit
+      - gstreamer1.0-plugins-bad
+      - gstreamer1.0-plugins-base
+      - gstreamer1.0-plugins-base-apps
+      - gstreamer1.0-plugins-good
+      - gstreamer1.0-plugins-ugly
+      - gstreamer1.0-pipewire
+      - gstreamer1.0-tools
+      - gstreamer1.0-videosink
+      - gstreamer1.0-videosource
+      - gstreamer1.0-x
       - gtk2-engines-pixbuf
+      - gvfs-backends
       - gwenview
       - haruna
       - isoimagewriter
@@ -87,7 +104,7 @@ tiers:
       - kdocker
       - keditbookmarks
       - kfind
-      - khelpcenter-data
+      - khelpcenter
       - keyutils
       - kicad
       - kinfocenter
@@ -96,6 +113,9 @@ tiers:
       - kio-extras
       - kio-fuse
       - kio-gdrive
+      - kirigami-addons-dev
+      - kirigami-gallery
+      - kirigami2-dev
       - kmag
       - kmenuedit
       - kmix
@@ -139,13 +159,25 @@ tiers:
       - libpinyin-utils
       - libkf6windowsystem-dev
       - libkwin6
+      - libpipewire-0.3-common
+      - libpipewire-0.3-modules
+      - libpipewire-0.3-modules-x11
+      - libpipewire-0.3-modules-xrdp
       - librime-data
       - librime-data-jyutping
       - librime-data-stenotype
+      - libspa-0.2-bluetooth
+      - libspa-0.2-dev
+      - libspa-0.2-modules
       - libu2f-udev
       - liburi-perl
+      - libqmi-glib-dev
+      - lm-sensors
+      - maliit-framework
+      - maliit-keyboard
       - merkuro
       - milou
+      - modem-manager-gui
       - neochat
       - okular
       - okular-data
@@ -153,13 +185,22 @@ tiers:
       - packagekit-tools
       - partitionmanager
       - pavucontrol-qt
+      - pipewire
+      - pipewire-alsa
+      - pipewire-audio
+      - pipewire-audio-client-libraries
+      - pipewire-bin
+      - pipewire-libcamera
+      - pipewire-module-xrdp
+      - pipewire-pulse
+      - pipewire-v4l2
+      - pipewire-system-services
       - plasma-browser-integration
       - plasma-discover-backend-flatpak
       - plasma-discover-backend-fwupd
       - plasma-discover-backend-snap
       - plasma-discover
       - plasma-disks
-      - plasma-gmailfeed
       - plasma-firewall
       - plasma-kdevelop
       - plasma-nm
@@ -178,108 +219,70 @@ tiers:
       - python3-opencv
       - qalculate-qt
       - qt6-gtk-platformtheme
+      - libreoffice-gtk3
       - qt6-image-formats-plugins
       - qt6-qpa-plugins
       - qt6-speech-speechd-plugin
       - qt6-style-kvantum
+      - qt6-virtualkeyboard-plugin
       - qtcreator
       - qtcreator-data
       - qtcreator-doc
       - qtwayland5
       - read-edid
+      - scdaemon
       - sddm
       - sddm-theme-debian-breeze
-      - skkdic
-      - skkdic-cdb
-      - skkdic-extra
-      - skktools
       - syncthingtray-kde-plasma
       - software-properties-gtk
       - sound-icons
+      - spacebar
       - spice-vdagent
       - sweeper
       - sysbench
       - thunderbolt-tools
       - vkmark
+      - vlc-plugin-pipewire
       - wayland-utils
+      - wireplumber
+      - wireplumber-system-services
       - workrave
       - xdg-desktop-portal-kde
-
-
-  mid:
-    # Drop the GTK-stack equivalents that KDE already provides via
-    # ark/gwenview/okular at the minimal tier.
+      - xinput
+      - yt-dlp
+      - youtubedl-gui
     packages_remove:
+      - adwaita-icon-theme
+      - browser
+      - gimp
       - gnome-text-editor
+      - gnome-calculator
+      - inkscape
       - file-roller
       - loupe
-    packages:
-      - kate
-
-  full:
-    # KDE Plasma drops the libreoffice-gtk3 integration package
-    # because we want native KDE file pickers / theming. There used
-    # to be a 'libreoffice-kde' package but it was retired upstream
-    # and no longer exists in any Debian / Ubuntu release we support
-    # (verified against bookworm/trixie/noble/plucky as of 2026).
-    # Plain 'libreoffice' (inherited from common.yaml full) is fine
-    # — modern LibreOffice picks up KDE integration automatically
-    # via libreoffice-style-breeze when it's installed alongside
-    # Plasma.
-    packages_remove:
+      - libreoffice
       - libreoffice-gtk3
+      - terminator
+      - transmission-gtk
+      - vlc
 
 releases:
+  # ── Debian 13 / Debian Trixie ─────────────────────────────────────────
   trixie:
     architectures: [arm64, amd64, armhf, riscv64]
     packages:
       - accountsservice
-      - libpipewire-0.3-0t64
-      - libpipewire-0.3-common
-      - libpipewire-0.3-modules
-      - libpipewire-0.3-modules-x11
       - libu2f-udev
-      - pipewire-alsa
-      - pipewire-audio
-      - pipewire-audio-client-libraries
-      - pipewire-bin
-      - pipewire-pulse
-      - pipewire-v4l2
-      - pipewire-system-services
-      - wireplumber
-      - wireplumber-system-services
     packages_remove:
-      - lightdm
-      - lightdm-gtk-greeter
-      - pulseaudio
-      - pulseaudio-module-bluetooth
 
   # ── Debian 14 / Debian Sid ─────────────────────────────────────────
-
   forky:
     # Debian 14 — pipewire replaces pulseaudio (same as trixie).
     architectures: [arm64, amd64, armhf, riscv64]
     packages:
       - accountsservice
-      - libpipewire-0.3-0t64
-      - libpipewire-0.3-common
-      - libpipewire-0.3-modules
-      - libpipewire-0.3-modules-x11
       - libu2f-udev
-      - pipewire-alsa
-      - pipewire-audio
-      - pipewire-audio-client-libraries
-      - pipewire-bin
-      - pipewire-pulse
-      - pipewire-v4l2
-      - pipewire-system-services
-      - wireplumber
-      - wireplumber-system-services
     packages_remove:
-      - lightdm
-      - lightdm-gtk-greeter
-      - pulseaudio
-      - pulseaudio-module-bluetooth
 
   sid:
     # Debian unstable — pipewire replaces pulseaudio (same as trixie/forky).
@@ -287,24 +290,6 @@ releases:
     architectures: [arm64, amd64, loong64, riscv64]
     packages:
       - accountsservice
-      - libpipewire-0.3-0t64
-      - libpipewire-0.3-common
-      - libpipewire-0.3-modules
-      - libpipewire-0.3-modules-x11
       - libu2f-udev
-      - pipewire-alsa
-      - pipewire-audio
-      - pipewire-audio-client-libraries
-      - pipewire-bin
-      - pipewire-pulse
-      - pipewire-v4l2
-      - pipewire-system-services
-      - wireplumber
-      - wireplumber-system-services
     packages_remove:
-      - lightdm
-      - lightdm-gtk-greeter
-      - pulseaudio
-      - pulseaudio-module-bluetooth
-
 
