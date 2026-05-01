@@ -10,7 +10,7 @@ status: supported
 # libreoffice-gtk3 for libreoffice-kde so the office suite uses the
 # Plasma integration backend.
 tiers:
-  full:
+  mid:
     packages:
       - task-kde-desktop
       - kde-full
@@ -18,7 +18,10 @@ tiers:
       - aha
       - amarok
       - amarok-utils
+      - avahi-autoipd
       - avahi-discover
+      - avahi-ui-utils
+      - avahi-utils
       - bluedevil
       - bolt
       - bolt-tests
@@ -34,6 +37,14 @@ tiers:
       - calligrawords
       - calligrawords-data
       - clinfo
+      - dbus
+      - dbus-bin
+      - dbus-broker
+      - dbus-daemon
+      - dbus-session-bus-common
+      - dbus-system-bus-common
+      - dbus-user-session
+      - dbus-x11
       - dmidecode
       - dmz-cursor-theme
       - dolphin-plugins
@@ -155,6 +166,9 @@ tiers:
       - kwin-addons
       - kwrite
       - lazarus
+      - lcl
+      - lcl-qt5
+      - lcl-units
       - libdisplay-info-bin
       - libpinyin-utils
       - libkf6windowsystem-dev
@@ -163,9 +177,6 @@ tiers:
       - libpipewire-0.3-modules
       - libpipewire-0.3-modules-x11
       - libpipewire-0.3-modules-xrdp
-      - librime-data
-      - librime-data-jyutping
-      - librime-data-stenotype
       - libspa-0.2-bluetooth
       - libspa-0.2-dev
       - libspa-0.2-modules
@@ -247,7 +258,9 @@ tiers:
       - wireplumber
       - wireplumber-system-services
       - workrave
+      - xdg-user-dirs-gtk
       - xdg-desktop-portal-kde
+      - xdg-user-dirs
       - xinput
       - yt-dlp
       - youtubedl-gui
@@ -264,7 +277,6 @@ tiers:
       - libreoffice-gtk3
       - terminator
       - transmission-gtk
-      - vlc
 
 releases:
   # ── Debian 13 / Debian Trixie ─────────────────────────────────────────
