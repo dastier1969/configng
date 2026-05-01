@@ -100,14 +100,17 @@ tiers:
     packages:
       - libreoffice
       - libreoffice-gtk3
-      - gimp
-      - inkscape
-      - thunderbird
+      - filezilla             # Full-featured graphical FTP/FTPS/SFTP client
+      - ipscan                # Angry IP Scanner - fast and friendly IP Scanner
+      - gimp                  # GNU Image Manipulation Program
+      - gimp-data-extras      # Extra brushes and patterns for GIMP
+      - inkscape              # vector-based drawing program
+      - thunderbird           # mail/news client with RSS, chat and integrated spam filter support
       - thunderbird-bidiui    # BiDirectional support for Thunderbird
       - birdtray              # system tray notifications for Thunderbird
       - webext-tb-goodies     # Useful Add-Ons for Thunderbird
       - webext-xnotepp        # Persistent sticky notes for Thunderbird
-      - audacity
+      - audacity              # fast, cross-platform audio editor
       - code                  # vscode (from apt.armbian.com)
 
 # Browser substitution table for the literal `browser` token in any
