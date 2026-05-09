@@ -34,8 +34,6 @@ tiers:
       - gtk2-engines-pixbuf
       - gvfs-backends
       - lm-sensors
-      - pulseaudio
-      - pulseaudio-module-bluetooth
       - spice-vdagent
       - xdg-user-dirs
 

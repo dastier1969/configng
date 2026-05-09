@@ -89,6 +89,7 @@ tiers:
       - libgl1-mesa-dri       # Mesa DRI drivers (OpenGL hardware path)
       - libglx-mesa0          # Mesa GLX front-end for X11
       - mesa-utils            # glxinfo, glxgears, es2_info, etc.
+      - mesa-va-drivers       # Mesa VA-API video acceleration drivers
       - mesa-vulkan-drivers   # Vulkan ICD drivers (Panfrost, Lima, Radeon, Intel, …)
       - vulkan-tools          # vulkaninfo, vkcube
       - glmark2-wayland       # GL benchmark — Wayland backend
@@ -101,7 +102,6 @@ tiers:
       - libreoffice
       - libreoffice-gtk3
       - filezilla             # Full-featured graphical FTP/FTPS/SFTP client
-      - ipscan                # Angry IP Scanner - fast and friendly IP Scanner
       - gimp                  # GNU Image Manipulation Program
       - gimp-data-extras      # Extra brushes and patterns for GIMP
       - inkscape              # vector-based drawing program
