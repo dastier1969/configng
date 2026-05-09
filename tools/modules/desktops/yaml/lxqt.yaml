@@ -1,0 +1,238 @@
+name: lxqt
+description: "LXQT Desktop - Lightweight feature-rich customizable desktop"
+display_manager: sddm
+status: supported
+
+# KDE Plasma minimal already ships its own konsole, dolphin, ark
+# (archive manager), gwenview (image viewer), okular (PDF viewer).
+# At the mid tier we override common.yaml's GTK choices to use the
+# native KDE applications instead, and at full tier we swap
+# libreoffice-gtk3 for libreoffice-kde so the office suite uses the
+# Plasma integration backend.
+tiers:
+  mid:
+    packages:
+      - task-lxqt-desktop
+      - adwaita-icon-theme-legacy
+      - adwaita-qt
+      - aha
+      - at-spi2-core
+      - avahi-autoipd
+      - avahi-daemon
+      - avahi-discover
+      - avahi-ui-utils
+      - avahi-utils
+      - blackbird-gtk-theme
+      - bluebird-gtk-theme
+      - blueman
+      - bluez
+      - bluez-tools
+      - bolt
+      - bolt-tests
+      - breeze-gtk-theme
+      - breeze-icon-theme
+      - calibre
+      - calibre-bin
+      - clementine
+      - clinfo
+      - colord
+      - dbus
+      - dbus-bin
+      - dbus-broker
+      - dbus-daemon
+      - dbus-session-bus-common
+      - dbus-system-bus-common
+      - dbus-user-session
+      - dbus-x11
+      - devhelp
+      - dmidecode
+      - dmz-cursor-theme
+      - edid-decode
+      - extra-xdg-menus
+      - faenza-icon-theme
+      - falkon
+      - feathernotes
+      - ffmpegthumbnailer
+      - flatpak-xdg-utils
+      - fpc
+      - fpc-source
+      - galternatives
+      - greybird-gtk-theme
+      - gstreamer1.0
+      - gstreamer1.0-gl
+      - gstreamer1.0-gtk4
+      - gstreamer1.0-libav
+      - gstreamer1.0-packagekit
+      - gstreamer1.0-plugins-bad
+      - gstreamer1.0-plugins-base
+      - gstreamer1.0-plugins-base-apps
+      - gstreamer1.0-plugins-good
+      - gstreamer1.0-plugins-ugly
+      - gstreamer1.0-pipewire
+      - gstreamer1.0-tools
+      - gstreamer1.0-videosink
+      - gstreamer1.0-videosource
+      - gstreamer1.0-x
+      - gtk2-engines-pixbuf
+      - gvfs-backends
+      - hardinfo2
+      - juffed
+      - juffed-plugins
+      - layer-shell-qt
+      - lcl
+      - lcl-qt5
+      - lcl-units
+      - libdisplay-info-bin
+      - liblxqt-backlight-helper
+      - libpinyin-utils
+      - libpipewire-0.3-common
+      - libpipewire-0.3-modules
+      - libpipewire-0.3-modules-x11
+      - libpipewire-0.3-modules-xrdp
+      - libqt6waylandcompositorxdgshell6
+      - libspa-0.2-bluetooth
+      - libspa-0.2-dev
+      - libspa-0.2-modules
+      - libu2f-udev
+      - liburi-perl
+      - libusbmuxd-tools
+      - libqmi-glib-dev
+      - lm-sensors
+      - lxappearance
+      - lxqt-build-tools
+      - lxqt-qtplugin6
+      - menu-xdg
+      - menu-xdg-basedir
+      - meteo-qt
+      - modem-manager-gui
+      - network-manager-apple
+      - nm-connect-editor
+      - nm-tray
+      - nomacs
+      - numix-gtk-theme
+      - numix-icon-theme
+      - numix-icon-theme-circle
+      - obconf-qt
+      - opus-tools
+      - orca
+      - oxygen-icon-theme
+      - packagekit-tools
+      - papirus-icon-theme
+      - pavucontrol-qt
+      - pciutils
+      - pipewire
+      - pipewire-alsa
+      - pipewire-audio
+      - pipewire-audio-client-libraries
+      - pipewire-bin
+      - pipewire-libcamera
+      - pipewire-module-xrdp
+      - pipewire-pulse
+      - pipewire-v4l2
+      - pipewire-system-services
+      - plasma-browser-integration
+      - plasma-discover-backend-flatpak
+      - plasma-discover-backend-fwupd
+      - plasma-discover-backend-snap
+      - plasma-discover
+      - plasma-disks
+      - plasma-firewall
+      - plasma-nm
+      - plasma-pa
+      - plasma-pass
+      - plasma-runners-addons
+      - plasma-systemmonitor
+      - plasma-thunderbolt
+      - plasma-welcome
+      - plasma-widgets-addons
+      - plasma-vault
+      - plymouth-label
+      - powerdevil
+      - power-profiles-daemon
+      - pulseaudio-utils
+      - python3-opencv
+      - qalculate-qt
+      - qpdfview
+      - qtpass
+      - qtxdg-dev-tools
+      - qtxdg-tools
+      - qt6-gtk-platformtheme
+      - qt6-image-formats-plugins
+      - qt6-qmltooling-plugins
+      - qt6-qpa-plugins
+      - qt6-style-kvantum
+      - qt6-svg-plugins
+      - qt6-wayland
+      - qt6-xdgdesktopportal-platformtheme
+      - read-edid
+      - scdaemon
+      - screengrab
+      - shutter
+      - software-properties-gtk
+      - sound-icons
+      - spice-vdagent
+      - strawberry
+      - sweeper
+      - sysbench
+      - thunderbolt-tools
+      - transmission-qt
+      - usbmuxd
+      - vkmark
+      - vokoscreen
+      - wayland-utils
+      - wireplumber
+      - wireplumber-system-services
+      - workrave
+      - x11-utils
+      - x11-xfs-utils
+      - xfconf-gsettings-backend
+      - xdg-desktop-portal-lxqt
+      - xdg-utils
+      - xdg-user-dirs-gtk
+      - xdg-user-dirs
+    packages_remove:
+      - browser
+      - gnome-text-editor
+      - gnome-calculator
+      - file-roller
+      - loupe
+      - terminator
+      - transmission-gtk
+  full:
+    packages_remove:
+      - audacity
+      - code
+      - file-roller
+      - gimp
+      - gimp-data-extras
+      - inkscape
+      - libreoffice
+      - libreoffice-gtk3
+
+releases:
+  # ── Debian 13 / Debian Trixie ─────────────────────────────────────────
+  trixie:
+    architectures: [arm64, amd64, armhf, riscv64]
+    packages:
+      - accountsservice
+      - libu2f-udev
+    packages_remove:
+      - pulseaudio
+  # ── Debian 14 / Debian Sid ─────────────────────────────────────────
+  forky:
+    # Debian 14 — pipewire replaces pulseaudio (same as trixie).
+    architectures: [arm64, amd64, armhf, riscv64]
+    packages:
+      - accountsservice
+      - libu2f-udev
+    packages_remove:
+      - pulseaudio
+  sid:
+    # Debian unstable — pipewire replaces pulseaudio (same as trixie/forky).
+    # loong64 is a 64-bit arch capable of running KDE Plasma.
+    architectures: [arm64, amd64, loong64, riscv64]
+    packages:
+      - accountsservice
+      - libu2f-udev
+    packages_remove:
+      - pulseaudio
