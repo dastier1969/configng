@@ -425,6 +425,44 @@ function _module_desktops_configure_networking() {
 }
 
 #
+# Detect whether desktop $de is installed. Returns 0 if so, 1 otherwise.
+# Layered to avoid the dpkg-only check misfiring when DEs share
+# packages (e.g. Bianbu's bianbu-desktop-minimal-en depends on
+# gnome-session, so a naive dpkg check would mark gnome as installed
+# on a Bianbu-only system and surface a "Uninstall GNOME" entry that
+# would actually nuke Bianbu's display stack).
+#
+#   1. /etc/armbian/desktop/<de>.tier exists → installed. The marker
+#      is written by `install` and removed by `remove`, so it tracks
+#      exactly what configng put on the system. Authoritative.
+#
+#   2. A different DE has its marker present → not installed. The
+#      other DE's marker is the tiebreaker against the dpkg fallback.
+#
+#   3. No markers anywhere AND dpkg shows DESKTOP_PRIMARY_PKG
+#      installed → legacy installs that pre-date the marker
+#      convention or were done with apt directly. Caller must have
+#      populated DESKTOP_PRIMARY_PKG via module_desktop_yamlparse.
+#
+function _module_desktops_is_installed() {
+	local de="$1"
+	[[ -n "$de" ]] || return 1
+	# Layer 1
+	if [[ -f "/etc/armbian/desktop/${de}.tier" ]]; then
+		return 0
+	fi
+	# Layer 2 — any other DE's marker means dpkg is unsafe
+	local m
+	for m in /etc/armbian/desktop/*.tier; do
+		[[ -f "$m" ]] || continue
+		return 1
+	done
+	# Layer 3 — legacy dpkg fallback
+	[[ -n "${DESKTOP_PRIMARY_PKG:-}" ]] || return 1
+	dpkg -l "$DESKTOP_PRIMARY_PKG" 2>/dev/null | grep -q "^ii"
+}
+
+#
 # Module to install and manage desktop environments (YAML-driven)
 #
 function module_desktops() {
@@ -543,14 +581,26 @@ function module_desktops() {
 			# a desktop and then flipping default.target to graphical
 			# leaves the next boot pinned to a graphical target with
 			# no working DM, which is a black-screen regression.
-			if ! pkg_install -o Dpkg::Options::="--force-confdef" -o Dpkg::Options::="--force-confold" ${DESKTOP_PACKAGES}; then
+			#
+			# --allow-downgrades is required for DEs whose per-DE pin
+			# (written by module_desktop_repo above) outranks the distro
+			# at priority >1000 — the whole point of those pins is to
+			# pull packages from a vendor archive even when the distro
+			# ships a *newer* version. Without --allow-downgrades, apt
+			# refuses with "Packages were downgraded and -y was used
+			# without --allow-downgrades" and the install aborts.
+			# Bianbu / SpacemiT K1 hits this with libdrm pulled from
+			# archive.spacemit.com. Flag is a no-op for DEs without a
+			# pin, since apt only picks a downgrade when explicitly
+			# directed to.
+			if ! pkg_install --allow-downgrades -o Dpkg::Options::="--force-confdef" -o Dpkg::Options::="--force-confold" ${DESKTOP_PACKAGES}; then
 				echo "Error: ${de} package install failed; aborting before any system state is changed" >&2
 				return 1
 			fi
 
 			# install and register display manager
 			if [[ -n "$DESKTOP_DM" && "$DESKTOP_DM" != "none" ]]; then
-				if ! pkg_install -o Dpkg::Options::="--force-confdef" -o Dpkg::Options::="--force-confold" "$DESKTOP_DM"; then
+				if ! pkg_install --allow-downgrades -o Dpkg::Options::="--force-confdef" -o Dpkg::Options::="--force-confold" "$DESKTOP_DM"; then
 					echo "Error: ${DESKTOP_DM} install failed; aborting before flipping systemd target" >&2
 					return 1
 				fi
@@ -875,10 +925,7 @@ function module_desktops() {
 				return 1
 			fi
 			module_desktop_yamlparse "$de" || return 1
-			if [[ -n "$DESKTOP_PRIMARY_PKG" ]] && dpkg -l "$DESKTOP_PRIMARY_PKG" 2>/dev/null | grep -q "^ii"; then
-				return 0
-			fi
-			return 1
+			_module_desktops_is_installed "$de"
 		;;
 
 		"${commands[5]}")
@@ -1107,7 +1154,7 @@ function module_desktops() {
 				return 1
 			fi
 			module_desktop_yamlparse "$de" || return 1
-			if [[ -n "$DESKTOP_PRIMARY_PKG" ]] && dpkg -l "$DESKTOP_PRIMARY_PKG" 2>/dev/null | grep -q "^ii"; then
+			if _module_desktops_is_installed "$de"; then
 				if [[ -f "/etc/armbian/desktop/${de}.tier" ]]; then
 					cat "/etc/armbian/desktop/${de}.tier"
 				else
@@ -1131,8 +1178,7 @@ function module_desktops() {
 				return 1
 			fi
 			module_desktop_yamlparse "$de" || return 1
-			[[ -n "$DESKTOP_PRIMARY_PKG" ]] || return 1
-			dpkg -l "$DESKTOP_PRIMARY_PKG" 2>/dev/null | grep -q "^ii" || return 1
+			_module_desktops_is_installed "$de" || return 1
 			local current="minimal"
 			[[ -f "/etc/armbian/desktop/${de}.tier" ]] && current=$(< "/etc/armbian/desktop/${de}.tier")
 			[[ "$current" == "$tier" ]]
@@ -1312,7 +1358,11 @@ _module_desktops_change_tier() {
 		else
 			echo "Upgrading ${de} from ${current} to ${target} (${#to_install[@]} new packages)"
 			ACTUALLY_INSTALLED=()
-			if ! pkg_install -o Dpkg::Options::="--force-confdef" -o Dpkg::Options::="--force-confold" "${to_install[@]}"; then
+			# --allow-downgrades for the same reason as the initial
+			# install path: the per-DE pin (still in effect during a
+			# tier upgrade) can resolve some packages to an older
+			# vendor-archive version, and apt -y refuses without it.
+			if ! pkg_install --allow-downgrades -o Dpkg::Options::="--force-confdef" -o Dpkg::Options::="--force-confold" "${to_install[@]}"; then
 				echo "Error: pkg_install failed during upgrade" >&2
 				return 1
 			fi
