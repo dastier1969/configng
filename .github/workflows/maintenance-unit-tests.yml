@@ -6,7 +6,11 @@ on:
   schedule:
     - cron: '0 2 * * *'
   pull_request:
-    types: [opened, reopened, edited, synchronize, review_requested]
+    # `ready_for_review` is the draft → ready transition; without it,
+    # a PR opened as a draft and later marked ready would never trigger
+    # the suite. The job-level `if:` below filters out drafts so opens
+    # / synchronizes that arrive while still in draft are skipped.
+    types: [opened, reopened, edited, synchronize, review_requested, ready_for_review]
 
 env:
   GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -26,6 +30,13 @@ jobs:
 
   prepare:
     name: "Armbian configurator unit tests"
+    # Skip draft PRs — gate the whole pipeline on the prepare job, so
+    # gradle-native / gradle-emulated / stop (which all `needs: prepare`)
+    # are skipped automatically too. For non-PR triggers (schedule,
+    # workflow_dispatch, repository_dispatch) `pull_request` is null,
+    # `draft` evaluates to null, and the condition stays true so the
+    # nightly cron and ad-hoc reruns are unaffected.
+    if: ${{ github.event.pull_request.draft != true }}
     runs-on: "ubuntu-24.04"
     outputs:
       DEPLOYMENT_MATRIX_NATIVE:   "${{ steps.json.outputs.DEPLOYMENT_MATRIX_NATIVE }}"
@@ -199,10 +210,122 @@ jobs:
     timeout-minutes: 90
     container:
       image: ${{ matrix.server.docker_image }}
-      options: --privileged --security-opt seccomp=unconfined --tmpfs /tmp --tmpfs /run --tmpfs /run/lock
+      # Host docker socket + CLI bind-mounted so the in-container
+      # diagnostic step below can list the runner host's docker
+      # state. Without this, an in-container `docker ps` has no
+      # daemon to talk to. Trade-off: container is already
+      # `--privileged`, and adding the socket effectively grants
+      # host-root (a malicious test could `docker run -v /:/host`).
+      # Acceptable because the test code is ours; revisit if test
+      # images ever start running untrusted code.
+      options: --privileged --security-opt seccomp=unconfined --tmpfs /tmp --tmpfs /run --tmpfs /run/lock -v /var/run/docker.sock:/var/run/docker.sock -v /usr/bin/docker:/usr/bin/docker:ro
       env:
         DBUS_SESSION_BUS_ADDRESS: unix:path=/run/bus/bus.sock
     steps:
+
+      # Same diagnostic step as gradle-emulated. Native runs inside
+      # the per-arch test container, but the container.options above
+      # bind-mount the host docker socket and CLI so this step can
+      # still see the runner host's images / containers. Useful on
+      # the arm64 self-hosted runner — emulated jobs only run on
+      # the amd64 host, so without this step the arm64 runner's
+      # docker leftovers were never observed.
+      #
+      # `|| true` on every command — observational, must not fail
+      # the job. Output grouped under `::group::` for collapsed
+      # log rendering.
+      - name: "Show docker state on the runner"
+        shell: bash
+        run: |
+          echo "::group::Running containers (docker ps)"
+          docker ps --format 'table {{.ID}}\t{{.Image}}\t{{.Status}}\t{{.Names}}\t{{.RunningFor}}' || true
+          echo "::endgroup::"
+
+          echo "::group::All containers, incl. stopped (docker ps -a)"
+          docker ps -a --format 'table {{.ID}}\t{{.Image}}\t{{.Status}}\t{{.Names}}\t{{.RunningFor}}' || true
+          echo "::endgroup::"
+
+          echo "::group::Images (docker images)"
+          docker images --format 'table {{.Repository}}:{{.Tag}}\t{{.ID}}\t{{.CreatedSince}}\t{{.Size}}' || true
+          echo "::endgroup::"
+
+          echo "::group::Disk usage (docker system df)"
+          docker system df || true
+          echo "::endgroup::"
+
+          echo "::group::Cleanup: stop and remove named test-service containers (uptime > 2h)"
+          # Tests that exercise module_postgres / module_redis /
+          # module_immich (and friends) spawn long-running service
+          # containers and only tear them down if the test reaches
+          # its `remove` stage. A test that's interrupted, or one
+          # that only calls `install`, leaves these wedged on the
+          # runner; the diagnostic above showed postgres-immich and
+          # mysql 'Up 7 days' for that reason.
+          #
+          # Skip containers that have been up less than 2h — they
+          # could be a sibling matrix slot's test currently in
+          # flight (native timeout-minutes is 90, emulated 210, so
+          # 2h is comfortably below "real test still running" and
+          # well above "leftover from a prior run").
+          #
+          # Stopped / Created containers are left to the
+          # orphaned-Created sweep below (which uses the bare-hash
+          # filter to avoid the same false-positive concern).
+          #
+          # Exact-match anchored names (^name$) so a future sibling
+          # like 'mysql-readonly' or 'postgres-staging' isn't caught.
+          # Runs *before* the orphaned-Created sweep so a freshly
+          # stopped service isn't briefly seen as orphan in the same
+          # pass. 'docker stop --time 30' gives postgres / mysql a
+          # chance to flush before SIGKILL; '|| true' on each step
+          # so a transient hiccup doesn't fail the test slot.
+          now_epoch=$(date +%s)
+          threshold=$(( 2 * 3600 ))
+          for c in postgres-immich mysql redis postgres; do
+            if ! docker ps -a --filter "name=^${c}$" --format '{{.Names}}' | grep -q "^${c}$"; then
+              echo "  absent : $c"
+              continue
+            fi
+            running=$(docker inspect "$c" --format '{{.State.Running}}' 2>/dev/null || echo false)
+            if [[ "$running" != "true" ]]; then
+              echo "  stopped (skip — orphan sweep handles below): $c"
+              continue
+            fi
+            started=$(docker inspect "$c" --format '{{.State.StartedAt}}' 2>/dev/null)
+            started_epoch=$(date -d "$started" +%s 2>/dev/null || echo "$now_epoch")
+            age=$(( now_epoch - started_epoch ))
+            if (( age < threshold )); then
+              printf "  recent <2h (skip): %s (up %dm)\n" "$c" $(( age / 60 ))
+              continue
+            fi
+            docker stop --time 30 "$c" >/dev/null 2>&1 || true
+            docker rm           "$c" >/dev/null 2>&1 || true
+            printf "  stop+rm: %s (up %dh)\n" "$c" $(( age / 3600 ))
+          done
+          echo "::endgroup::"
+
+          echo "::group::Cleanup: orphaned 'Created' containers (image ref is bare hash)"
+          # Pattern: stopped-but-never-started containers whose Image
+          # column is a 12-char hex ID (no repo:tag). These are
+          # leftovers from prior runs whose image was already removed
+          # but whose container record is stuck in 'Created'. Tagged
+          # images are deliberately skipped — a 'Created' container
+          # with a tagged image (e.g. mysql:lts) may belong to the
+          # host operator and is mid-'docker create'.
+          #
+          # xargs -r no-ops on empty input; '|| true' so a transient
+          # docker hiccup doesn't fail the job.
+          docker ps -a --filter 'status=created' --format '{{.ID}} {{.Image}}' \
+            | awk '$2 ~ /^[0-9a-f]{12}$/ { print $1 }' \
+            | xargs -r docker rm \
+            || true
+          echo "::endgroup::"
+
+          # Future cleanups (test-image purge after tests finish,
+          # dangling-volume prune) belong in the 'stop' job — they're
+          # whole-workflow operations, not per-slot, and would
+          # otherwise race sibling matrix slots that still need the
+          # images.
 
       - name: "Initialize systemd"
         run: |
@@ -317,6 +440,113 @@ jobs:
     runs-on: ${{ matrix.server.runner }}
     timeout-minutes: 210
     steps:
+
+      # Diagnostic only for now — list docker state on the runner so
+      # we can see which containers / images survive across runs and
+      # pick a precise removal pattern before adding any cleanup.
+      # gradle-emulated is the right place: its steps run on the
+      # self-hosted host (no job-level `container:`) and can talk to
+      # the host docker daemon. gradle-native's steps run inside a
+      # container and only see that container's filesystem, so a
+      # listing there would be empty.
+      #
+      # Output is grouped under `::group::` so each section is
+      # collapsed-by-default in the GHA log UI; expand the section
+      # whose pattern you want to inspect. `|| true` on every command
+      # so a missing socket / docker daemon outage doesn't fail the
+      # job — this step is observational, not load-bearing.
+      - name: "Show docker state on the runner"
+        shell: bash
+        run: |
+          echo "::group::Running containers (docker ps)"
+          docker ps --format 'table {{.ID}}\t{{.Image}}\t{{.Status}}\t{{.Names}}\t{{.RunningFor}}' || true
+          echo "::endgroup::"
+
+          echo "::group::All containers, incl. stopped (docker ps -a)"
+          docker ps -a --format 'table {{.ID}}\t{{.Image}}\t{{.Status}}\t{{.Names}}\t{{.RunningFor}}' || true
+          echo "::endgroup::"
+
+          echo "::group::Images (docker images)"
+          docker images --format 'table {{.Repository}}:{{.Tag}}\t{{.ID}}\t{{.CreatedSince}}\t{{.Size}}' || true
+          echo "::endgroup::"
+
+          echo "::group::Disk usage (docker system df)"
+          docker system df || true
+          echo "::endgroup::"
+
+          echo "::group::Cleanup: stop and remove named test-service containers (uptime > 2h)"
+          # Tests that exercise module_postgres / module_redis /
+          # module_immich (and friends) spawn long-running service
+          # containers and only tear them down if the test reaches
+          # its `remove` stage. A test that's interrupted, or one
+          # that only calls `install`, leaves these wedged on the
+          # runner; the diagnostic above showed postgres-immich and
+          # mysql 'Up 7 days' for that reason.
+          #
+          # Skip containers that have been up less than 2h — they
+          # could be a sibling matrix slot's test currently in
+          # flight (native timeout-minutes is 90, emulated 210, so
+          # 2h is comfortably below "real test still running" and
+          # well above "leftover from a prior run").
+          #
+          # Stopped / Created containers are left to the
+          # orphaned-Created sweep below (which uses the bare-hash
+          # filter to avoid the same false-positive concern).
+          #
+          # Exact-match anchored names (^name$) so a future sibling
+          # like 'mysql-readonly' or 'postgres-staging' isn't caught.
+          # Runs *before* the orphaned-Created sweep so a freshly
+          # stopped service isn't briefly seen as orphan in the same
+          # pass. 'docker stop --time 30' gives postgres / mysql a
+          # chance to flush before SIGKILL; '|| true' on each step
+          # so a transient hiccup doesn't fail the test slot.
+          now_epoch=$(date +%s)
+          threshold=$(( 2 * 3600 ))
+          for c in postgres-immich mysql redis postgres; do
+            if ! docker ps -a --filter "name=^${c}$" --format '{{.Names}}' | grep -q "^${c}$"; then
+              echo "  absent : $c"
+              continue
+            fi
+            running=$(docker inspect "$c" --format '{{.State.Running}}' 2>/dev/null || echo false)
+            if [[ "$running" != "true" ]]; then
+              echo "  stopped (skip — orphan sweep handles below): $c"
+              continue
+            fi
+            started=$(docker inspect "$c" --format '{{.State.StartedAt}}' 2>/dev/null)
+            started_epoch=$(date -d "$started" +%s 2>/dev/null || echo "$now_epoch")
+            age=$(( now_epoch - started_epoch ))
+            if (( age < threshold )); then
+              printf "  recent <2h (skip): %s (up %dm)\n" "$c" $(( age / 60 ))
+              continue
+            fi
+            docker stop --time 30 "$c" >/dev/null 2>&1 || true
+            docker rm           "$c" >/dev/null 2>&1 || true
+            printf "  stop+rm: %s (up %dh)\n" "$c" $(( age / 3600 ))
+          done
+          echo "::endgroup::"
+
+          echo "::group::Cleanup: orphaned 'Created' containers (image ref is bare hash)"
+          # Pattern: stopped-but-never-started containers whose Image
+          # column is a 12-char hex ID (no repo:tag). These are
+          # leftovers from prior runs whose image was already removed
+          # but whose container record is stuck in 'Created'. Tagged
+          # images are deliberately skipped — a 'Created' container
+          # with a tagged image (e.g. mysql:lts) may belong to the
+          # host operator and is mid-'docker create'.
+          #
+          # xargs -r no-ops on empty input; '|| true' so a transient
+          # docker hiccup doesn't fail the job.
+          docker ps -a --filter 'status=created' --format '{{.ID}} {{.Image}}' \
+            | awk '$2 ~ /^[0-9a-f]{12}$/ { print $1 }' \
+            | xargs -r docker rm \
+            || true
+          echo "::endgroup::"
+
+          # Future cleanups (test-image purge after tests finish,
+          # dangling-volume prune) belong in the 'stop' job — they're
+          # whole-workflow operations, not per-slot, and would
+          # otherwise race sibling matrix slots that still need the
+          # images.
 
       # Emulated and native jobs share the same self-hosted runner
       # and the same _work/<repo>/<repo>/ path. A previous native
