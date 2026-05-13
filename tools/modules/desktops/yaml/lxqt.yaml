@@ -3,14 +3,9 @@ description: "LXQT Desktop - Lightweight feature-rich customizable desktop"
 display_manager: sddm
 status: supported
 
-# KDE Plasma minimal already ships its own konsole, dolphin, ark
-# (archive manager), gwenview (image viewer), okular (PDF viewer).
-# At the mid tier we override common.yaml's GTK choices to use the
-# native KDE applications instead, and at full tier we swap
-# libreoffice-gtk3 for libreoffice-kde so the office suite uses the
-# Plasma integration backend.
+# LXQT
 tiers:
-  mid:
+  full:
     packages:
       - task-lxqt-desktop
       - adwaita-icon-theme-legacy
@@ -190,6 +185,7 @@ tiers:
       - xdg-utils
       - xdg-user-dirs-gtk
       - xdg-user-dirs
+   mid:
     packages_remove:
       - browser
       - gnome-text-editor
