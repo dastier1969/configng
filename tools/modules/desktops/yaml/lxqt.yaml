@@ -5,7 +5,7 @@ status: supported
 
 # LXQT
 tiers:
-  full:
+  minimal:
     packages:
       - task-lxqt-desktop
       - adwaita-icon-theme-legacy
@@ -100,7 +100,7 @@ tiers:
       - menu-xdg-basedir
       - meteo-qt
       - modem-manager-gui
-      - network-manager-apple
+      - network-manager-applet
       - nm-connect-editor
       - nm-tray
       - nomacs
@@ -185,7 +185,7 @@ tiers:
       - xdg-utils
       - xdg-user-dirs-gtk
       - xdg-user-dirs
-   mid:
+  mid:
     packages_remove:
       - browser
       - gnome-text-editor
