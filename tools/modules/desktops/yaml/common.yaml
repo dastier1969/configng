@@ -99,12 +99,21 @@ tiers:
 
   full:
     packages:
-      - libreoffice
-      - libreoffice-gtk3
+      - libreoffice           # office productivity suite
+      - libreoffice-gtk3      # office productivity suite -- GTK+ 3 integration
+      - libreoffice-gtk4      # office productivity suite -- GTK 4 integration
       - filezilla             # Full-featured graphical FTP/FTPS/SFTP client
       - gimp                  # GNU Image Manipulation Program
       - gimp-data-extras      # Extra brushes and patterns for GIMP
+      - hexchat               # IRC client for X based on X-Chat 2
+      - hexchat-plugins       # Common plugins for HexChat 2
       - inkscape              # vector-based drawing program
+      - inkscape-tutorials    # vector-based drawing program - tutorials
+      - inkscape-open-symbols # Open source SVG symbol sets that can be used as Inkscape symbols
+      - inkscape-speleo       # Inkscape plugin to help draw surveys
+      - inkscape-survex-export # Inkscape plugin to digitise printed surveys
+      - inkscape-textedit     # Re-editable LaTeX graphics for Inkscape
+      - inkscape-textext-doc  # Re-editable LaTeX graphics for Inkscape (documentation)
       - thunderbird           # mail/news client with RSS, chat and integrated spam filter support
       - thunderbird-bidiui    # BiDirectional support for Thunderbird
       - birdtray              # system tray notifications for Thunderbird
