@@ -11,6 +11,12 @@ tiers:
       - adwaita-icon-theme-legacy
       - adwaita-qt
       - aha
+      - alsa-utils
+      - apparmor
+      - apparmor-notify
+      - apparmor-profiles
+      - apparmor-profiles-extra
+      - apparmor-utils
       - at-spi2-core
       - avahi-autoipd
       - avahi-daemon
@@ -46,6 +52,7 @@ tiers:
       - extra-xdg-menus
       - faenza-icon-theme
       - falkon
+      - fastfetch
       - feathernotes
       - ffmpegthumbnailer
       - flatpak-xdg-utils
@@ -103,6 +110,7 @@ tiers:
       - menu-xdg-basedir
       - meteo-qt
       - modem-manager-gui
+      - mousetweaks
       - nm-connect-editor
       - nm-tray
       - nomacs
@@ -171,6 +179,8 @@ tiers:
       - strawberry
       - sweeper
       - sysbench
+      - systemd-coredump
+      - systemd-timesyncd
       - thunderbolt-tools
       - transmission-qt
       - usbmuxd
