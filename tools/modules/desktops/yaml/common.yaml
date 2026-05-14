@@ -33,6 +33,7 @@ tiers:
       - adwaita-icon-theme
       - cups
       - dconf-cli
+      - dconf-editor
       - profile-sync-daemon
       - terminator
       - upower
@@ -71,9 +72,17 @@ tiers:
       - file-roller          # archive manager
       - transmission-gtk     # torrent client
       - armbian-imager       # SD-card image flasher (from apt.armbian.com)
+      - bluez-cups
+      - cups-bsd
+      - cups-browsed
       - cups-pk-helper       # polkit bridge — lets GNOME/KDE printer panels
                              # unlock cups config without sudo. Other DEs
                              # get this transitively via system-config-printer.
+      - printer-driver-all
+      - print-manager
+      - system-config-printer
+      - system-config-printer-common
+      - system-config-printer-udev
       # 3D / GPU runtime + diagnostics. Previously installed by
       # armbian/build's extensions/mesa-vpu.sh on desktop builds;
       # moved here so every mid-tier desktop install (image-built
@@ -123,6 +132,7 @@ tiers:
       - webext-xnotepp        # Persistent sticky notes for Thunderbird
       - audacity              # fast, cross-platform audio editor
       - code                  # vscode (from apt.armbian.com)
+      - devhelp
       - rustdesk              # A remote control software
       - youtubedl-gui         # GUI on yt-dlp (ie, youtube-dl) to download videos from a variety of sites
       - yt-dlp                # downloader of videos from YouTube and other sites
