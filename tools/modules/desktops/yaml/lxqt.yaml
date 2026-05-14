@@ -203,9 +203,9 @@ tiers:
       - file-roller
       - gimp
       - gimp-data-extras
-      - inkscape
       - libreoffice
       - libreoffice-gtk3
+      - libreoffice-gtk4
 
 releases:
   # ── Debian 13 / Debian Trixie ─────────────────────────────────────────
