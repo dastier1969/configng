@@ -14,7 +14,6 @@ tiers:
     packages:
       - task-kde-desktop
       - kde-full
-      - plasma-mobile-full
       - aha
       - amarok
       - amarok-utils
