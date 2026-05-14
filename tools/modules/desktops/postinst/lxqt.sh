@@ -10,3 +10,9 @@ if [ -d /usr/share/sddm/themes/plasma-chili ] && [ -f /etc/sddm.conf ]; then
 fi
 
 
+mkdir -p /usr/share/glib-2.0/schemas
+cat <<-EOF > /usr/share/glib-2.0/schemas/org.gnome.desktop.background.gschema.override
+[org.gnome.desktop.background]
+picture-uri='file:///usr/share/backgrounds/riscv/Riscv-0-logo.jpg'
+show-desktop-icons=true
+EOF
