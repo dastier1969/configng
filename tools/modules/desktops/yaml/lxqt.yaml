@@ -32,8 +32,8 @@ tiers:
       - bolt-tests
       - breeze-gtk-theme
       - breeze-icon-theme
-      - calibre
-      - calibre-bin
+      - brltty
+      - brltty-x11
       - clementine
       - clinfo
       - colord
@@ -45,6 +45,7 @@ tiers:
       - dbus-system-bus-common
       - dbus-user-session
       - dbus-x11
+      - dh-apparmor
       - devhelp
       - dmidecode
       - dmz-cursor-theme
@@ -55,6 +56,7 @@ tiers:
       - fastfetch
       - feathernotes
       - ffmpegthumbnailer
+      - flatpack
       - flatpak-xdg-utils
       - fpc
       - fpc-source
@@ -62,6 +64,7 @@ tiers:
       - greybird-gtk-theme
       - gstreamer1.0
       - gstreamer1.0-gl
+      - gstreamer1.0-gtk3
       - gstreamer1.0-gtk4
       - gstreamer1.0-libav
       - gstreamer1.0-packagekit
@@ -85,6 +88,8 @@ tiers:
       - lcl
       - lcl-qt5
       - lcl-units
+      - libasound2t64
+      - libasound2-plugins
       - libdisplay-info-bin
       - liblxqt-backlight-helper
       - libmpvqt1
@@ -170,9 +175,12 @@ tiers:
       - qt6-wayland
       - qt6-xdgdesktopportal-platformtheme
       - read-edid
+      - redshift
       - scdaemon
       - screengrab
       - shutter
+      - smbclient
+      - snapd
       - software-properties-gtk
       - sound-icons
       - spice-vdagent
@@ -183,6 +191,9 @@ tiers:
       - systemd-timesyncd
       - thunderbolt-tools
       - transmission-qt
+      - tree
+      - tumbler
+      - tumbler-plugins-extra
       - usbmuxd
       - vkmark
       - vokoscreen
