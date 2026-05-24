@@ -119,7 +119,16 @@ function module_armbian_runners () {
 				-H "X-GitHub-Api-Version: 2022-11-28" \
 				https://api.github.com/${prefix}/${registration_url}/actions/runners/registration-token | jq -r .token)
 
-				${module_options["module_armbian_runners,feature"]} ${commands[1]} ${runner_name} "${i}"
+				if ! ${module_options["module_armbian_runners,feature"]} ${commands[1]} ${runner_name} "${i}"; then
+					# `remove` returns non-zero when GitHub refused
+					# the DELETE — almost always because the runner
+					# is currently running a job. Skip this index;
+					# the existing runner keeps doing its work
+					# untouched, and the next install pass will
+					# pick it up when it's idle.
+					echo "Skipping install of runner ${i} (${runner_name}-${i}) — currently busy on GitHub" >&2
+					continue
+				fi
 
 				adduser --quiet --disabled-password --shell /bin/bash \
 				--home /home/actions-runner-${i} --gecos "actions-runner-${i}" actions-runner-${i}
@@ -148,11 +157,84 @@ function module_armbian_runners () {
 				fi
 			done
 
+			# Install the runner-cleanup maintenance helper alongside
+			# the runners themselves. Script + systemd units are
+			# always overwritten so a `module_armbian_runners install`
+			# brings them up to date; the operator-edited conf at
+			# /etc/armbian/runner-cleanup.conf is preserved on
+			# re-install (template dropped as .conf.dist so admins
+			# can diff for new defaults).
+			#
+			# Asset path resolution: in a source checkout the assets
+			# sit next to this module under tools/modules/system/.
+			# In the installed .deb they ship to
+			# /usr/share/armbian-config/runner-cleanup/ — debian.conf
+			# adds the rule, mirroring how the desktops assets are
+			# laid out. Try BASH_SOURCE-relative first (dev), fall
+			# back to the install path (production).
+			local cleanup_src=""
+			if [[ -d "$(dirname "${BASH_SOURCE[0]}")/runner-cleanup" ]]; then
+				cleanup_src="$(dirname "${BASH_SOURCE[0]}")/runner-cleanup"
+			elif [[ -d /usr/share/armbian-config/runner-cleanup ]]; then
+				cleanup_src=/usr/share/armbian-config/runner-cleanup
+			fi
+			if [[ -n "$cleanup_src" ]]; then
+				install -m 0755 "${cleanup_src}/runner-cleanup"         /usr/local/sbin/runner-cleanup
+				install -m 0644 "${cleanup_src}/runner-cleanup.service" /etc/systemd/system/runner-cleanup.service
+				install -m 0644 "${cleanup_src}/runner-cleanup.timer"   /etc/systemd/system/runner-cleanup.timer
+				install -d /etc/armbian
+				if [[ ! -e /etc/armbian/runner-cleanup.conf ]]; then
+					install -m 0644 "${cleanup_src}/runner-cleanup.conf" /etc/armbian/runner-cleanup.conf
+				fi
+				install -m 0644 "${cleanup_src}/runner-cleanup.conf" /etc/armbian/runner-cleanup.conf.dist
+				# Event-driven per-runner _diag/pages cleanup. The hourly
+				# runner-cleanup timer is the catch-all; this layer fires
+				# on every runner unit start/stop so collisions never
+				# survive a quick restart cycle. install-runner-hooks
+				# scans every actions.runner.*.service installed by the
+				# svc.sh step above and drops in ExecStartPre/StopPost
+				# wired to /usr/local/sbin/runner-clean-pages.
+				install -m 0755 "${cleanup_src}/runner-clean-pages"     /usr/local/sbin/runner-clean-pages
+				systemctl daemon-reload
+				# Don't silence errors here — a failed timer install
+				# means the cleanup never fires and the host quietly
+				# accumulates disk. Show stderr; on the first command's
+				# failure, fall back to enable + start separately so we
+				# can pinpoint which half went wrong, and log each.
+				if ! systemctl enable --now runner-cleanup.timer; then
+					echo "Warning: 'systemctl enable --now runner-cleanup.timer' failed; retrying separately" >&2
+					systemctl enable runner-cleanup.timer || \
+						echo "Error: 'systemctl enable runner-cleanup.timer' failed" >&2
+					systemctl start  runner-cleanup.timer || \
+						echo "Error: 'systemctl start runner-cleanup.timer' failed" >&2
+				fi
+				# Wire up the systemd drop-ins for every runner unit
+				# that the svc.sh loop above just installed. Runs after
+				# daemon-reload so the new drop-ins take effect on the
+				# next runner restart cycle. Non-fatal — runner units
+				# already started above keep working without hooks
+				# until the operator restarts them.
+				if ! bash "${cleanup_src}/install-runner-hooks"; then
+					echo "Warning: install-runner-hooks failed; runner-clean-pages systemd hooks not in place" >&2
+				fi
+			else
+				echo "Warning: runner-cleanup assets not found in source tree next to module or at /usr/share/armbian-config/runner-cleanup; skipping maintenance helper install" >&2
+			fi
+
 		;;
 		"${commands[1]}")
 			# delete if previous already exists
 			echo "Removing runner $3 on GitHub"
-			${module_options["module_armbian_runners,feature"]} ${commands[2]} "$2-$3"
+			if ! ${module_options["module_armbian_runners,feature"]} ${commands[2]} "$2-$3"; then
+				# Most common failure: GitHub returned 422 because
+				# the runner is currently running a job. Don't proceed
+				# with the local cleanup — that would leave a state
+				# where GitHub still thinks the runner exists, the
+				# host has no install, and the subsequent config.sh
+				# would fail with 'A runner exists with the same name'.
+				echo "Skipping local removal of actions-runner-$3 — GitHub delete failed (runner likely busy)" >&2
+				return 1
+			fi
 			echo "Removing runner $3 locally"
 			runner_home=$(getent passwd "actions-runner-${3}" | cut -d: -f6)
 			if [[ -f "${runner_home}/svc.sh" ]]; then
@@ -166,6 +248,13 @@ function module_armbian_runners () {
 		"${commands[2]}")
 			DELETE=$2
 			x=1
+			# Failure flag — set on any non-204 DELETE response. The
+			# most common case is HTTP 422 'runner is currently
+			# running a job', which we don't want to silently swallow:
+			# without it the caller proceeds with local cleanup and
+			# leaves a half-state where GitHub thinks the runner exists
+			# but the host has nothing for it.
+			local delete_failed=0
 			while [ $x -le 9 ] # need to do it different as it can be more then 9 pages
 			do
 			RUNNER=$(
@@ -182,16 +271,27 @@ function module_armbian_runners () {
 				# deleting a runner
 				if [[ $RUNNER_NAME == ${DELETE} ]]; then
 					echo "Delete existing: $RUNNER_NAME"
-					curl -s -L \
+					local resp_body http_code
+					resp_body=$(mktemp)
+					http_code=$(curl -s -L \
 					-X DELETE \
 					-H "Accept: application/vnd.github+json" \
 					-H "Authorization: Bearer ${gh_token}"\
 					-H "X-GitHub-Api-Version: 2022-11-28" \
-					https://api.github.com/${prefix}/${registration_url}/actions/runners/${RUNNER_ID}
+					-o "${resp_body}" -w '%{http_code}' \
+					https://api.github.com/${prefix}/${registration_url}/actions/runners/${RUNNER_ID})
+					if [[ "$http_code" != "204" ]]; then
+						echo "  ! DELETE ${RUNNER_NAME} returned HTTP ${http_code}:" >&2
+						cat "${resp_body}" >&2
+						echo >&2
+						delete_failed=1
+					fi
+					rm -f "${resp_body}"
 				fi
 			done <<< $RUNNER
 			x=$(( $x + 1 ))
 			done
+			return $delete_failed
 		;;
 		"${commands[3]}")
 			if [[ -z $gh_token ]]; then
