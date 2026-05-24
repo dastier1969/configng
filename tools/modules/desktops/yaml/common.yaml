@@ -46,6 +46,26 @@ tiers:
       # in the GTK applet for nothing.
       - network-manager
       - netplan.io
+      # Camera userspace: PipeWire + GStreamer libcamera shims so apps
+      # (GNOME Snapshot / Cheese / Firefox / Chrome) can see V4L2 /
+      # libcamera devices end-to-end. v4l-utils ships `v4l2-ctl` for
+      # troubleshooting. Kernel-side enumeration of /dev/video* is not
+      # enough on modern laptops with complex ISPs (Intel IPU3/6/7,
+      # Qualcomm Snapdragon X) - apps need the userspace pipeline.
+      # Inert on machines without a camera (small daemons only).
+      - pipewire-libcamera
+      - gstreamer1.0-libcamera
+      - v4l-utils
+      # ALSA Use Case Manager profiles. Without this package, PipeWire /
+      # wireplumber see a complex sound card (Intel SOF on Lunar/Meteor/
+      # Panther Lake laptops, Qualcomm Snapdragon X, AMD ACP DSP, …)
+      # but have no per-machine recipe for which PCM device is the speaker
+      # output, which controls to unmute, or how to route on jack-insert.
+      # Result: ALSA-level audio works (`speaker-test -D plughw:0,2`
+      # plays), but GNOME / KDE Sound shows "Dummy Output" only.
+      # Architecture: all package, ~1 MB on disk, inert on simpler audio
+      # chains (HDMI-only SBCs, USB DAC, etc.), so safe at minimal tier.
+      - alsa-ucm-conf
 
   mid:
     packages:
@@ -81,6 +101,24 @@ tiers:
       - glmark2-es2-wayland   # GLES2 benchmark — Wayland backend
       - glmark2-x11           # GL benchmark — X11 backend
       - glmark2-es2-x11       # GLES2 benchmark — X11 backend
+      # Fingerprint reader stack. Standard on every modern business
+      # laptop (ThinkPad / Latitude / EliteBook / ...). Installing
+      # the packages doesn't auto-enable fingerprint auth - PAM
+      # only starts using it once the user runs
+      # `pam-auth-update --enable fprintd` and enrols a finger via
+      # `fprintd-enroll`. So this is safe to ship to every desktop
+      # mid-tier install; machines without a reader pay ~5 MB of
+      # idle daemons.
+      #
+      # The TOD plugin host (libfprint-2-tod1) is Ubuntu-only and
+      # mostly only useful when the user also installs a vendor TOD
+      # blob - keep it out of the default set so Debian installs
+      # don't fail with "Unable to locate package". Ubuntu users who
+      # need it can `apt install libfprint-2-tod1` plus the matching
+      # vendor plugin manually.
+      - fprintd
+      - libfprint-2-2
+      - libpam-fprintd
 
   full:
     packages:
@@ -180,6 +218,30 @@ browser:
 # Verified against packages.debian.org (madison) and
 # packages.ubuntu.com / launchpad as of 2026-04. Update when releases
 # move forward or when arch dependencies change.
+
+# Cross-DE per-release additions/removals, applied AFTER tiers + the
+# `browser` substitution + tier_overrides. Mirrors the per-DE
+# `releases:` block in yaml/<de>.yaml but applies to every desktop.
+#
+# Use this for packages that:
+#   - only exist on a subset of releases, AND
+#   - we want on every desktop where they DO exist
+#
+# Cheaper than enumerating Debian strips when the package is Ubuntu-only,
+# and avoids touching each per-DE yaml.
+releases:
+  noble:
+    # libfprint-2-tod1 is Ubuntu-only - hosts vendor "Touch OEM Driver"
+    # plugins for several Goodix / Synaptics fingerprint sensors with
+    # no open-source path. Inert on its own; pairs with whichever
+    # vendor TOD .deb a user installs for their reader (e.g.
+    # libfprint-2-tod1-goodix-550a).
+    packages:
+      - libfprint-2-tod1
+  resolute:
+    packages:
+      - libfprint-2-tod1
+
 tier_overrides:
   minimal:
     releases:
